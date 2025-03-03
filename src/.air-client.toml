@@ -1,0 +1,31 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  bin = "./tmp/client"
+  cmd = "go build -v -ldflags \"-X 'version.BuildTime=$(date -u)'\" -o ./tmp/client ./client/cmd/client.go"
+  include_ext = ["go", "tpl", "tmpl", "html", "proto"]
+  exclude_dir = ["assets", "tmp", "vendor", "testdata", "extras", "proto", "server"]
+  pre_cmd = []
+
+[color]
+  build = "yellow"
+  main = "magenta"
+  runner = "green"
+  watcher = "cyan"
+
+[misc]
+  clean_on_exit = true
+
+[log]
+  main_only = false
+  time = true
+
+[proxy]
+  app_port = 0
+  enabled = false
+  proxy_port = 0
+
+[screen]
+  clear_on_rebuild = false
+  keep_scroll = true
