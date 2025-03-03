@@ -1,154 +1,148 @@
-# Perception Engine
+# Firedragon
 
-Perception Engine is a tool designed to capture and analyze multimodal data from a users environment. It is designed to be the foundation for a variety of applications, including but not limited to, human-computer interaction, human-robot interaction, and human-environment. The engine is designed to be modular, allowing for the easy addition of new data sources and analysis methods.
+Crypto Wallet and Bank Account Transaction Importer for Firefly III
 
-## Development
+![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Go](https://img.shields.io/badge/Go-1.21-blue)
 
-- [ ] Add support for config file
+This project is a Golang-based application designed to integrate cryptocurrency wallets and bank accounts with [Firefly III](https://www.firefly-iii.org/), a self-hosted personal finance management tool. It fetches transaction data from cryptocurrency wallets (e.g., MetaMask on Ethereum, Phantom on Solana, SUIWallet on SUI) and bank accounts (e.g., Revolut via Enable Banking API) and imports it into Firefly III for unified financial tracking.
 
-## Usage
+The aim of this project is to leverage unified API's, such as Enable Banking, to simplify the process of importing transactions from various sources into Firefly III.
 
-> [!IMPORTANT]\
-> TODO: This section of documentation is being worked on.
+I built this as a personal project to make integrating my crypto wallets and bank accounts with Firefly III easier.
 
-```bash
-perception [OPTIONS] [PATH] [OPTIONAL TARGET PATH]
-```
+---
 
-We also support the alias
+## Table of Contents
 
-```bash
-pce [OPTIONS] [PATH] [OPTIONAL TARGET PATH]
-```
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [Contributing](#contributing)
+- [License](#license)
 
-### Options
+---
 
-> [!IMPORTANT]\
-> TODO: This section of documentation is being worked on.
+## Prerequisites
 
-All commands have aliases.
+Before you begin, ensure you have the following installed:
 
-```bash
-completion    Generate the autocompletion script for the specified shell
-help          Help about any command
-rewind        Rewind the operations to an earlier state
-backtest      Run a backtest session
-```
+- [Docker](https://www.docker.com/get-started) - For containerized deployment.
+- [Docker Compose](https://docs.docker.com/compose/install/) - For managing multi-container setups (optional).
+- [Go](https://golang.org/dl/) (version 1.21 or later) - Required if building from source.
+- A running instance of [Firefly III](https://docs.firefly-iii.org/installation/docker/) - The target financial management tool.
 
-### Arguments
-
-> [!IMPORTANT]\
-> TODO: This section of documentation is being worked on.
-
-## Backtest Command
-
-The `backtest` command allows you to run a backtest session by loading a specific session ID.
-
-### Usage
-
-```bash
-perception-engine-server backtest --load session_id
-```
-
-### Options
-
-- `--load`: Session ID to load for backtest
+---
 
 ## Installation
 
-> [!IMPORTANT]\
-> TODO: This section of documentation is being worked on.
+Follow these steps to set up the project:
 
-### From source
+1. **Clone the Repository**:
+   ```sh
+   git clone https://github.com/ZanzyTHEbar/firedragon-go.git
+   cd firedragon-go
+   ```
 
-> [!IMPORTANT]\
-> TODO: This section of documentation is being worked on.
+2. **Build the Docker Image**:
+   ```sh
+   docker build -t firedragon-go .
+   ```
 
-1. Clone the repository
-2. Make sure go is installed.
+3. **(Optional) Use Docker Compose**:
+   If using Docker Compose, ensure your `docker-compose.yml` file is properly configured, then proceed to the [Usage](#usage) section.
 
-```bash
-make build
+---
+
+## Configuration
+
+1. **Create a `config.json` File**:
+   Place a `config.json` file in the project root with the following structure:
+   ```json
+   {
+       "firefly": {
+           "url": "http://localhost:8080",
+           "token": "your_firefly_api_token"
+       },
+       "wallets": [
+           {"chain": "ethereum", "address": "0xYourEthAddress"},
+           {"chain": "solana", "address": "YourSolanaAddress"},
+           {"chain": "sui", "address": "YourSuiAddress"}
+       ],
+       "banks": [
+           {"provider": "revolut", "account_id": "your_revolut_account_id"}
+       ],
+       "interval": "15m"
+   }
+   ```
+   - `firefly.url`: Your Firefly III instance URL.
+   - `firefly.token`: Your Firefly III API token.
+   - `wallets`: List of cryptocurrency wallet addresses to track.
+   - `banks`: List of bank accounts to import (e.g., Revolut).
+   - `interval`: Frequency of transaction imports (e.g., "15m" for 15 minutes).
+
+2. **Set Environment Variables**:
+   For sensitive credentials, use environment variables:
+   - `ENABLE_CLIENT_ID`: Your Enable Banking OAuth client ID.
+   - `ENABLE_CLIENT_SECRET`: Your Enable Banking OAuth client secret.
+   - `ETHERSCAN_API_KEY`: Your Etherscan API key (for Ethereum transactions).
+
+   You can define these in a `.env` file or export them in your shell:
+   ```sh
+   export ENABLE_CLIENT_ID="your_client_id"
+   export ENABLE_CLIENT_SECRET="your_client_secret"
+   export ETHERSCAN_API_KEY="your_etherscan_key"
+   ```
+
+---
+
+## Usage
+
+### Running in Foreground Mode
+
+For testing or interactive use:
+
+```sh
+docker run -it --rm -v $(pwd)/data:/app/data firedragon-go --foreground
 ```
 
-Or to build and install
+- `-it`: Runs the container interactively.
+- `--rm`: Removes the container after it exits.
+- `-v`: Mounts a local `data` directory for persistent storage.
 
-```bash
-make build && make install
+### Running in Detached Mode
+
+To run as a background service:
+
+#### With Docker Compose:
+```sh
+docker-compose up -d
 ```
 
-To test the executable
-
-```bash
-make test
+#### Manually:
+```sh
+docker run -d -v $(pwd)/data:/app/data firedragon-go --detach
 ```
 
-## Development Quick Start
+- `-d`: Runs the container in detached mode.
 
-### Requirements
+### Stopping the Application
 
-- Go 1.22 or higher
-- NATs cli
-- Make
-
-The makefile is setup to automate the process of building and running the server and client. The server is a simple API server that listens for events and stores them in a database. The client is a CLI tool that sends events to the server.
-
-
-### Installation
-
-Clone this repository and navigate to the project directory.
-
-#### Server
-
-Like most Go projects, this project uses Makefiles to manage the build process. To get started, run the following commands:
-
-`Run the project and run the API server in development mode`:
-
-```bash
-make dev
+#### With Docker Compose:
+```sh
+docker-compose down
 ```
 
-`Help`:
-
-Show the available make commands:
-
-```bash
-make help
+#### Manually:
+```sh
+docker stop <container_id>
 ```
+Find the `container_id` using `docker ps`.
 
-#### Client CLI
-
-```bash
-go run cmd/client.go start --nats "nats://localhost:<port>" --nats-user local --nats-pass <pass>
-```
-
-### Server CLI
-
-```bash
-go run cmd/server.go start all --nats "nats://localhost:<port>" --nats-user local --nats-pass <pass>
-```
-
-### NATs CLI
-
-#### Sub to all events
-
-```bash
-nats sub ">" --server localhost:<port> --user local --password <pass>
-```
-
-### Data Directory Path
-
-```text
-data/<session_id>/
-  ├── index.json
-  ├── hid/
-  │   └── hid.json
-  ├── screen/
-  │   └── YYYYMMDD.png
-  └── transcription/
-      └── <client_id>_transcript_<number>.json
-```
+---
 
 ## License
 
-[MIT](/LICENSE)
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
