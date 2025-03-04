@@ -1,0 +1,5 @@
+package: firefly
+output: firefly.gen.go
+generate:
+  client: true
+  models: true

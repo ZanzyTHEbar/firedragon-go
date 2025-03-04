@@ -7,8 +7,8 @@ Below is the updated **Engineering Design Document (EDD)** for the **Crypto Wall
 **Project Name:** Crypto Wallet and Bank Account Transaction Importer  
 **Date:** March 3, 2025  
 **Version:** 1.2  
-**Author:** [Your Name]  
-**Project Lead:** [Your Name]  
+**Author:** Zacariah Heim  
+**Project Lead:** Zacariah Heim  
 **Status:** Final Draft
 
 ---

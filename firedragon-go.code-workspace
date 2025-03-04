@@ -39,7 +39,8 @@
     "makefile.configureOnOpen": false,
     "gopls": {
       "build.directoryFilters": ["-extras"]
-    }
+    },
+    "markdown.validate.enabled": true
   },
   "extensions": {
     "recommendations": [
