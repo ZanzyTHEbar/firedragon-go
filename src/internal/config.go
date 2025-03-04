@@ -6,71 +6,65 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/spf13/viper"
 )
 
-// Config represents the server configuration
+// Config represents the Firedragon configuration
 type Config struct {
-	// NATS configuration
-	NATS struct {
-		ServerURL      string   `mapstructure:"server_url"`
-		Username       string   `mapstructure:"username"`
-		Password       string   `mapstructure:"password"`
-		Token          string   `mapstructure:"token"`
-		StreamName     string   `mapstructure:"stream_name"`
-		Subjects       []string `mapstructure:"subjects"`
-		CommandChannel string   `mapstructure:"command_channel"`
-	} `mapstructure:"nats"`
+	// Firefly III configuration
+	Firefly struct {
+		URL   string `mapstructure:"url"`   // Firefly III API URL
+		Token string `mapstructure:"token"` // Firefly III API token
+	} `mapstructure:"firefly"`
 
-	// Client configuration
-	Client struct {
-		Screen struct {
-			Interval int    `mapstructure:"interval"` // Interval in seconds, 0 means disabled
-			Quality  string `mapstructure:"quality"`  // high, medium, low
-			Format   string `mapstructure:"format"`   // png, jpg
-		} `mapstructure:"screen"`
-		HID struct {
-			BufferSize int `mapstructure:"buffer_size"` // Event buffer size
-		} `mapstructure:"hid"`
-		Transcript struct {
-			Language     string `mapstructure:"language"`      // Default language code
-			BufferSize   int    `mapstructure:"buffer_size"`   // Event buffer size
-			AutoStart    bool   `mapstructure:"auto_start"`    // Start transcription on launch
-			OutputFormat string `mapstructure:"output_format"` // text, json
-		} `mapstructure:"transcript"`
-	} `mapstructure:"client"`
+	// Wallets configuration - map of wallet chain to address
+	Wallets map[string]string `mapstructure:"wallets"` // e.g., "ethereum": "0xAddress"
 
-	// Server configuration
-	Server struct {
-		LogLevel        string        `mapstructure:"log_level"`
-		Port            int           `mapstructure:"port"`
-		StoragePath     string        `mapstructure:"storage_path"`
-		RetentionPeriod time.Duration `mapstructure:"retention_period"`
-	} `mapstructure:"server"`
+	// BankAccounts configuration
+	BankAccounts []BankAccountConfig `mapstructure:"bank_accounts"`
 
+	// Interval for background operations
+	Interval string `mapstructure:"interval"` // e.g., "15m" for background task frequency
+
+	// Database configuration
+	Database struct {
+		Path string `mapstructure:"path"` // Path to SQLite database file
+	} `mapstructure:"database"`
+
+	// Debug mode
 	Debug bool `mapstructure:"debug"`
+}
+
+// BankAccountConfig represents configuration for a bank account
+type BankAccountConfig struct {
+	Name        string            `mapstructure:"name"`        // Account name
+	Provider    string            `mapstructure:"provider"`    // e.g., "enable_banking"
+	Credentials map[string]string `mapstructure:"-"`           // Loaded from env vars (e.g., ENABLE_CLIENT_ID)
+	Currencies  map[string]string `mapstructure:"currencies"`  // Currency to Firefly account ID
+	Limit       int               `mapstructure:"limit"`       // Default transaction limit
+	FromDate    string            `mapstructure:"from_date"`   // Optional start date (e.g., "2023-01-01")
+	ToDate      string            `mapstructure:"to_date"`     // Optional end date (e.g., "2023-12-31")
 }
 
 // LoadConfig loads the configuration from various sources
 func LoadConfig(configFile string) (*Config, error) {
 	v := viper.New()
-
+	
 	// Set default values
 	setDefaultConfig(v)
-
+	
 	// Read configuration from file if provided
 	if configFile != "" {
 		v.SetConfigFile(configFile)
 	} else {
-		// Look for config in the current directory and in /etc/perception-engine/
+		// Look for config in the current directory and in /etc/firedragon/
 		v.AddConfigPath(".")
-		v.AddConfigPath("/etc/perception-engine/")
+		v.AddConfigPath("/etc/firedragon/")
 		v.SetConfigName("config")
-		v.SetConfigType("yaml")
+		v.SetConfigType("json") // Using JSON as specified in the design doc
 	}
-
+	
 	// Read the config file
 	if err := v.ReadInConfig(); err != nil {
 		// It's okay if the config file doesn't exist
@@ -78,29 +72,40 @@ func LoadConfig(configFile string) (*Config, error) {
 			return nil, err
 		}
 	}
-
-	// Override with environment variables prefixed with PE_
-	v.SetEnvPrefix("PE")
+	
+	// Override with environment variables prefixed with FIREDRAGON_
+	v.SetEnvPrefix("FIREDRAGON")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
-
+	
 	// Parse the configuration
 	var config Config
 	if err := v.Unmarshal(&config); err != nil {
 		return nil, err
 	}
-
-	// Special handling for environment variables that don't follow the pattern
-	if os.Getenv("NATS_USERNAME") != "" {
-		config.NATS.Username = os.Getenv("NATS_USERNAME")
+	
+	// Load credentials from environment variables
+	for i := range config.BankAccounts {
+		config.BankAccounts[i].Credentials = make(map[string]string)
+		
+		// Handle Enable Banking credentials if provider is 'enable_banking'
+		if config.BankAccounts[i].Provider == "enable_banking" {
+			config.BankAccounts[i].Credentials["client_id"] = os.Getenv("ENABLE_CLIENT_ID")
+			config.BankAccounts[i].Credentials["client_secret"] = os.Getenv("ENABLE_CLIENT_SECRET")
+		}
+		
+		// Handle other credential types as needed
 	}
-	if os.Getenv("NATS_PASSWORD") != "" {
-		config.NATS.Password = os.Getenv("NATS_PASSWORD")
+	
+	// Load blockchain API keys from environment variables
+	if _, ok := config.Wallets["ethereum"]; ok {
+		// We have an Ethereum wallet, so we need the Etherscan API key
+		etherScanApiKey := os.Getenv("ETHERSCAN_API_KEY")
+		if etherScanApiKey == "" {
+			return nil, fmt.Errorf("ETHERSCAN_API_KEY environment variable not set")
+		}
 	}
-	if os.Getenv("NATS_TOKEN") != "" {
-		config.NATS.Token = os.Getenv("NATS_TOKEN")
-	}
-
+	
 	return &config, nil
 }
 
@@ -108,45 +113,42 @@ func LoadConfig(configFile string) (*Config, error) {
 func SaveConfig(config *Config) error {
 	v := viper.New()
 	v.SetConfigFile(viper.ConfigFileUsed())
-
+	
 	// Marshal the config to map
 	configMap := make(map[string]interface{})
 	data, err := json.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
-
+	
 	if err := json.Unmarshal(data, &configMap); err != nil {
 		return fmt.Errorf("failed to unmarshal config to map: %w", err)
 	}
-
+	
 	// Set all values in viper
 	for k, v := range configMap {
 		viper.Set(k, v)
 	}
-
+	
 	// Save the config file
 	if err := viper.WriteConfig(); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
-
+	
 	return nil
 }
 
 // setDefaultConfig sets default configuration values
 func setDefaultConfig(v *viper.Viper) {
-	// NATS defaults
-	v.SetDefault("nats.server_url", "nats://localhost:4222")
-	v.SetDefault("nats.stream_name", "perception-events")
-	v.SetDefault("nats.subjects", []string{
-		"local.*.client.data.*",
-		"local.*.browser.data.*",
-	})
-	v.SetDefault("nats.command_channel", "perception-commands")
-
-	// Server defaults
-	v.SetDefault("server.log_level", "debug")
-	v.SetDefault("server.port", 4222)
-	v.SetDefault("server.storage_path", filepath.Join(".", "data"))
-	v.SetDefault("server.retention_period", 24*time.Hour)
+	// Firefly III defaults
+	v.SetDefault("firefly.url", "http://localhost:8080")
+	
+	// Database defaults
+	v.SetDefault("database.path", filepath.Join(".", "data", "firedragon.db"))
+	
+	// Background task interval default
+	v.SetDefault("interval", "15m")
+	
+	// Debug mode default
+	v.SetDefault("debug", false)
 }
