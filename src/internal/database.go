@@ -7,8 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"./embedding"
-	_ "github.com/tursodatabase/libsql-client-go/libsql"
+	// Requires CGO
+	_ "github.com/tursodatabase/go-libsql"
+	"github.com/ZanzyTHEbar/firedragon-go/internal/embedding"
 )
 
 // SQLiteDatabase implements the DatabaseClient interface
