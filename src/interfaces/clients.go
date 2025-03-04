@@ -1,4 +1,4 @@
-package internal
+package interfaces
 
 import (
 	"time"
@@ -59,6 +59,15 @@ type DatabaseClient interface {
 	// SetLastImportTime sets the timestamp of the last import operation
 	SetLastImportTime(source string, timestamp time.Time) error
 
+	// SearchSimilarTransactions finds transactions with similar metadata embeddings
+	SearchSimilarTransactions(metadata map[string]string, limit int) ([]string, error)
+
 	// Close closes the database connection
 	Close() error
+}
+
+// Balance represents an account balance
+type Balance struct {
+	Currency string
+	Amount   float64
 }

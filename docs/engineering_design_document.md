@@ -1,15 +1,10 @@
-Below is the updated **Engineering Design Document (EDD)** for the **Crypto Wallet and Bank Account Transaction Importer for Firefly III**, incorporating the changes to run the application as a background service using Docker and Docker Compose. This document integrates all features, requirements, and components from the provided design, ensuring a comprehensive and cohesive blueprint for development and deployment.
-
----
-
 # Engineering Design Document: Crypto Wallet and Bank Account Transaction Importer for Firefly III
 
 **Project Name:** Crypto Wallet and Bank Account Transaction Importer  
 **Date:** March 3, 2025  
 **Version:** 1.2  
 **Author:** Zacariah Heim  
-**Project Lead:** Zacariah Heim  
-**Status:** Final Draft
+**Project Lead:** Zacariah Heim 
 
 ---
 

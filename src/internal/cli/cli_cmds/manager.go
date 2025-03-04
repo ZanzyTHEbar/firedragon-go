@@ -18,7 +18,7 @@ var (
 // GetServiceManager returns the global ServiceManager instance
 func GetServiceManager() *internal.ServiceManager {
 	managerOnce.Do(func() {
-		globalManager = internal.NewServiceManager(context.Background())
+		globalManager = NewServiceManager(context.Background())
 	})
 	return globalManager
 }

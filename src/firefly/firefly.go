@@ -211,6 +211,32 @@ func (c *FireflyClient) FetchBalances() ([]Balance, error) {
 	return balances, nil
 }
 
+// GetAccounts retrieves all accounts from Firefly III
+func (c *FireflyClient) GetAccounts() (map[string]string, error) {
+	ctx := context.Background()
+	resp, err := c.clientAPI.ListAccountWithResponse(ctx, &ListAccountParams{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list accounts: %w", err)
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return nil, fmt.Errorf("failed to list accounts (HTTP %d)", resp.StatusCode())
+	}
+
+	accounts := make(map[string]string)
+	// Parse the response body
+	var accountArray AccountArray
+	if err := json.NewDecoder(resp.HTTPResponse.Body).Decode(&accountArray); err != nil {
+		return nil, fmt.Errorf("failed to parse account data: %w", err)
+	}
+
+	for _, acc := range accountArray.Data {
+		accounts[acc.Attributes.Name] = acc.Id
+	}
+
+	return accounts, nil
+}
+
 // Ptr is a helper function to get a pointer to a value
 func Ptr[T any](v T) *T {
 	return &v

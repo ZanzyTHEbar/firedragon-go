@@ -10,7 +10,10 @@ import (
 	"time"
 )
 
-type LogLevel int
+var (
+	globalLogger *Logger
+	once         sync.Once
+)
 
 const (
 	LogLevelDebug LogLevel = iota
@@ -21,16 +24,15 @@ const (
 )
 
 type Component string
+type LogLevel int
 
 const (
-	ComponentHID        Component = "HID"
-	ComponentNATS       Component = "NATS"
-	ComponentStorage    Component = "Storage"
-	ComponentConfig     Component = "Config"
-	ComponentScreen     Component = "Screen"
-	ComponentTranscript Component = "Trans"
-	ComponentService    Component = "Service"
-	ComponentGeneral    Component = "General"
+	ComponentNATS        Component = "NATS"
+	ComponentStorage     Component = "Storage"
+	ComponentConfig      Component = "Config"
+	ComponentTransaction Component = "Trans"
+	ComponentService     Component = "Service"
+	ComponentGeneral     Component = "General"
 )
 
 type Logger struct {
@@ -40,11 +42,6 @@ type Logger struct {
 	level             LogLevel
 	enabledComponents map[Component]bool
 }
-
-var (
-	globalLogger *Logger
-	once         sync.Once
-)
 
 func InitGlobalLogger(logDir string, level LogLevel, components []Component) error {
 	var err error
@@ -60,10 +57,12 @@ func GetLogger() *Logger {
 			logger: log.New(os.Stderr, "", log.LstdFlags),
 			level:  LogLevelInfo,
 			enabledComponents: map[Component]bool{
-				ComponentGeneral: true,
-				ComponentHID:     true,
-				ComponentNATS:    true,
-				ComponentService: true,
+				ComponentGeneral:     true,
+				ComponentService:     true,
+				ComponentTransaction: true,
+				ComponentConfig:      true,
+				ComponentStorage:     true,
+				ComponentNATS:        true,
 			},
 		}
 	}

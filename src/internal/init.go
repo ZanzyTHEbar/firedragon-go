@@ -19,13 +19,10 @@ func Init() (*Config, *Logger) {
 	// init logger
 	if err := InitGlobalLogger("logs", LogLevelDebug, []Component{
 		ComponentGeneral,
-		ComponentHID,
 		ComponentNATS,
 		ComponentConfig,
 		ComponentService,
 		ComponentStorage,
-		ComponentScreen,
-		ComponentTranscript,
 	}); err != nil {
 		// If logger initialization fails, use the default logger
 		logger = GetLogger()

@@ -6,8 +6,8 @@ import (
 )
 
 var (
-	DefaultAppName          = "perceptionengine"
-	DefaultAppCMDShortCut   = "pce"
+	DefaultAppName          = "firedragon"
+	DefaultAppCMDShortCut   = "fd"
 	DefaultConfigFolderName = DefaultAppName
 	DefaultConfigPath       = filepath.Join(os.Getenv("HOME"), ".config", DefaultConfigFolderName)
 	DefaultCacheDir         = filepath.Join(DefaultConfigPath, ".cache")
