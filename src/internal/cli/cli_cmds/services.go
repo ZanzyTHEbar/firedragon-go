@@ -3,6 +3,7 @@ package cli_cmds
 import (
 	"fmt"
 
+	"github.com/ZanzyTHEbar/firedragon-go/internal"
 	"github.com/ZanzyTHEbar/firedragon-go/internal/cli"
 	"github.com/spf13/cobra"
 )
@@ -72,6 +73,10 @@ func newServicesStart(params *cli.CmdParams) *cobra.Command {
 
 			if len(args) != 1 {
 				params.Logger.Error(internal.ComponentCLI, "Service name required")
+				return
+			}
+			if err := manager.StartService(args[0]); err != nil {
+				params.Logger.Error(internal.ComponentCLI, "Failed to start service %s: %v", args[0], err)
 				return
 			}
 

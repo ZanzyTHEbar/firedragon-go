@@ -4,7 +4,6 @@ import (
 	"time"
 )
 
-// StorageAdapter defines the interface for storage adapters
 type StorageAdapter interface {
 	// StoreEvent stores an event in the storage
 	StoreEvent(event Event) error

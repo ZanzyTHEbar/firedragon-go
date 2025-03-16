@@ -4,7 +4,6 @@ package services
 import (
 	"time"
 
-	"github.com/ZanzyTHEbar/firedragon-go/interfaces"
 	"github.com/ZanzyTHEbar/firedragon-go/internal"
 	"github.com/anthdm/hollywood/actor"
 )
@@ -14,34 +13,64 @@ type ActorService interface {
 	actor.Receiver
 }
 
-// BaseActor provides common functionality for all actors
-type BaseActor struct {
-	logger *internal.Logger
-	name   string
-}
-
-// NewBaseActor creates a new base actor with the given name and logger
-func NewBaseActor(name string, logger *internal.Logger) BaseActor {
-	return BaseActor{
-		name:   name,
-		logger: logger,
-	}
-}
-
-// StartMsg tells an actor to start processing
+// Message types for actor communication
 type StartMsg struct{}
-
-// StopMsg tells an actor to stop processing
 type StopMsg struct{}
-
-// StatusRequestMsg is a message requesting the current status of an actor
 type StatusRequestMsg struct{}
 
-// StatusResponseMsg is the response to a status request
 type StatusResponseMsg struct {
-	Status      interfaces.ServiceStatus
+	Status      string
 	LastActive  time.Time
 	ErrorCount  int
 	LastError   error
 	CustomStats map[string]interface{}
+}
+
+// BaseActor provides common functionality for all actors
+type BaseActor struct {
+	logger     *internal.Logger
+	name       string
+	status     string
+	startTime  time.Time
+	errorCount int
+	lastError  error
+	stats      map[string]interface{}
+}
+
+// NewBaseActor creates a new base actor with initialized fields
+func NewBaseActor(name string, logger *internal.Logger) *BaseActor {
+	return &BaseActor{
+		name:       name,
+		logger:     logger,
+		status:     "initialized",
+		startTime:  time.Now(),
+		stats:      make(map[string]interface{}),
+	}
+}
+
+// HandleStatus processes status request messages
+func (a *BaseActor) HandleStatus() *StatusResponseMsg {
+	return &StatusResponseMsg{
+		Status:      a.status,
+		LastActive:  a.startTime,
+		ErrorCount:  a.errorCount,
+		LastError:   a.lastError,
+		CustomStats: a.stats,
+	}
+}
+
+// UpdateStatus sets the current actor status
+func (a *BaseActor) UpdateStatus(status string) {
+	a.status = status
+}
+
+// RecordError increments error count and stores last error
+func (a *BaseActor) RecordError(err error) {
+	a.errorCount++
+	a.lastError = err
+}
+
+// UpdateStats adds or updates custom statistics
+func (a *BaseActor) UpdateStats(key string, value interface{}) {
+	a.stats[key] = value
 }

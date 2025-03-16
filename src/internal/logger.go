@@ -33,6 +33,7 @@ const (
 	ComponentTransaction Component = "Trans"
 	ComponentService     Component = "Service"
 	ComponentGeneral     Component = "General"
+	ComponentCLI         Component = "CLI"
 )
 
 type Logger struct {

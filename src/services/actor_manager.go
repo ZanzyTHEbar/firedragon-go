@@ -33,7 +33,9 @@ type ActorServiceManager struct {
 
 	// Service registry
 	services    map[string]*actor.PID
-	serviceInfo map[string]*interfaces.ServiceInfo
+	serviceInfo map[string]interfaces.ServiceInfo
+	mu          sync.RWMutex
+	natsClient  *nats.Conn
 }
 
 // NewActorServiceManager creates a new actor-based service manager
@@ -41,11 +43,11 @@ func NewActorServiceManager(config *internal.Config, logger *internal.Logger) Ac
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Create the actor engine with default config
-	engine, err := actor.NewEngine(actor.NewEngineConfig())	
-	if (err != nil) {
+	engine, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
 		logger.Error(internal.ComponentGeneral, "Failed to create actor engine: %v", err)
 		cancel()
-		return ActorServiceManager{}	
+		return ActorServiceManager{}
 	}
 
 	return ActorServiceManager{
@@ -56,7 +58,7 @@ func NewActorServiceManager(config *internal.Config, logger *internal.Logger) Ac
 		ctx:               ctx,
 		cancel:            cancel,
 		services:          make(map[string]*actor.PID),
-		serviceInfo:       make(map[string]*interfaces.ServiceInfo),
+		serviceInfo:       make(map[string]interfaces.ServiceInfo),
 		engine:            engine,
 	}
 }
@@ -118,8 +120,8 @@ func (m *ActorServiceManager) Initialize() error {
 	m.services["transaction_service"] = transactionPID
 
 	// Initialize service info
-	m.serviceInfo["transaction_service"] = &interfaces.ServiceInfo{
-		Name:   "transaction_service", 
+	m.serviceInfo["transaction_service"] = interfaces.ServiceInfo{
+		Name:   "transaction_service",
 		Status: interfaces.ServiceStatusStopped,
 	}
 
@@ -136,8 +138,8 @@ func (m *ActorServiceManager) Register(name string, service ActorService) {
 	}, name)
 	m.services[name] = pid
 
-	// Initialize service info 
-	m.serviceInfo[name] = &interfaces.ServiceInfo{
+	// Initialize service info
+	m.serviceInfo[name] = interfaces.ServiceInfo{
 		Name:   name,
 		Status: interfaces.ServiceStatusStopped,
 	}
@@ -147,42 +149,29 @@ func (m *ActorServiceManager) Register(name string, service ActorService) {
 
 // StartService starts a specific actor service by name
 func (m *ActorServiceManager) StartService(name string) error {
-	m.logger.Debug(internal.ComponentService, "StartService called for actor service: %s", name)
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	if _, exists := m.services[name]; exists {
-		// Update service info
-		if info, ok := m.serviceInfo[name]; ok {
-			info.Status = interfaces.ServiceStatusRunning
-			info.StartTime = time.Now()
-		}
-
-		// Send start message to actor
-		m.engine.Send(m.services[name], StartMsg{})
-		m.logger.Debug(internal.ComponentService, "Actor service %s started", name)
-		return nil
+	pid, exists := m.services[name]
+	if !exists {
+		return fmt.Errorf("service %s not found", name)
 	}
 
-	return fmt.Errorf("actor service %s not found", name)
+	m.engine.Send(pid, &StartMsg{})
+	return nil
 }
 
 // StopService stops a specific actor service by name
 func (m *ActorServiceManager) StopService(name string) error {
-	m.logger.Debug(internal.ComponentService, "StopService called for actor service: %s", name)
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	pid, exists := m.services[name]
 	if !exists {
-		return fmt.Errorf("actor service %s not found", name)
+		return fmt.Errorf("service %s not found", name)
 	}
 
-	// Update service info
-	if info, ok := m.serviceInfo[name]; ok {
-		info.Status = interfaces.ServiceStatusStopped
-	}
-
-	// Send stop message to actor
-	m.engine.Send(pid, StopMsg{})
-
-	m.logger.Debug(internal.ComponentService, "Actor service %s stopped", name)
+	m.engine.Send(pid, &StopMsg{})
 	return nil
 }
 
@@ -322,28 +311,59 @@ func (m *ActorServiceManager) GetServiceInfo(name string) (*interfaces.ServiceIn
 		return nil, fmt.Errorf("service %s not found", name)
 	}
 
-	// TODO: we want to ask the actor for its current status
 	info, exists := m.serviceInfo[name]
 	if !exists {
 		return nil, fmt.Errorf("service info for %s not found", name)
 	}
 
+	pid, exists := m.services[name]
+	if exists {
+		// Send status request to actor
+		future := m.engine.Request(pid, &StatusRequestMsg{}, 5*time.Second)
+		if result, err := future.Result(); err == nil {
+			if response, ok := result.(StatusResponseMsg); ok {
+				info.Status = response.Status
+				info.StartTime = response.LastActive
+				info.ErrorCount = response.ErrorCount
+				info.LastError = response.LastError
+				info.CustomStats = response.CustomStats
+			}
+		}
+	}
+
 	// Create a copy to avoid concurrent modifications
-	infoCopy := *info
+	infoCopy := info
 	return &infoCopy, nil
 }
 
 // GetAllServicesInfo returns information about all registered services
 func (m *ActorServiceManager) GetAllServicesInfo() []*interfaces.ServiceInfo {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	result := make([]*interfaces.ServiceInfo, 0, len(m.serviceInfo))
 
-	for name := range m.services {
-		info, err := m.GetServiceInfo(name)
-		if err != nil {
-			m.logger.Warn(internal.ComponentService, "Failed to get info for service %s: %v", name, err)
-			continue
+	for name, info := range m.serviceInfo {
+		// Create a copy of the info to avoid concurrent modifications
+		infoCopy := &interfaces.ServiceInfo{
+			Name:          info.Name,
+			Status:        info.Status,
+			LastError:     info.LastError,
+			StartTime:     info.StartTime,
+			EventsHandled: info.EventsHandled,
+			ActiveClients: info.ActiveClients,
+			ErrorCount:    info.ErrorCount,
+			LastErrorTime: info.LastErrorTime,
+			CustomStats:   info.CustomStats,
 		}
-		result = append(result, info)
+
+		// Get latest status from actor if available
+		if pid, exists := m.services[name]; exists {
+			m.engine.Send(pid, &StatusRequestMsg{})
+			// The actor will update the service info asynchronously
+		}
+
+		result = append(result, infoCopy)
 	}
 
 	return result
@@ -411,4 +431,48 @@ func publishActorServiceStatus(conn *nats.Conn, services []*interfaces.ServiceIn
 	if err := conn.Publish("service.status", data); err != nil {
 		log.Error(internal.ComponentService, "Error publishing service status: %v", err)
 	}
+}
+
+// Status field is used by publishActorServiceStatus
+func (m *ActorServiceManager) publishActorServiceStatus() {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for name, info := range m.serviceInfo {
+		// Use Status and StartTime fields for NATS status updates
+		status := &interfaces.ServiceInfo{
+			Name:      name,
+			Status:    info.Status,
+			StartTime: info.StartTime,
+			LastError: info.LastError,
+		}
+
+		// Marshal the status to JSON
+		data, err := json.Marshal(status)
+		if err != nil {
+			m.logger.Error(internal.ComponentGeneral, "Failed to marshal service status: %v", err)
+			continue
+		}
+		m.logger.Debug(internal.ComponentGeneral, "Publishing service status: %s", string(data))
+
+		// Publish status via NATS
+		if err := m.natsClient.Publish("services.status", data); err != nil {
+			m.logger.Error(internal.ComponentGeneral, "Failed to publish service status: %v", err)
+		}
+	}
+}
+
+// UpdateServiceStatus updates a service's status and triggers status publishing
+func (m *ActorServiceManager) UpdateServiceStatus(name string, status string) {
+	m.mu.Lock()
+	if info, exists := m.serviceInfo[name]; exists {
+		info.Status = status
+		if status == "started" {
+			info.StartTime = time.Now()
+		}
+	}
+	m.mu.Unlock()
+
+	// Trigger status update
+	m.publishActorServiceStatus()
 }

@@ -4,21 +4,8 @@ import (
 	"time"
 )
 
-// ServiceManager defines the interface for managing services
-type ServiceManager interface {
-	Initialize() error
-	StartService(name string) error
-	StopService(name string) error
-	StartAll() error
-	StopAll() error
-	Shutdown() error
-	Start(runOnce bool) error
-	GetServiceInfo(name string) (*ServiceInfo, error)
-	GetAllServicesInfo() []*ServiceInfo
-}
-
 // ServiceStatus represents the current status of a service
-type ServiceStatus string
+type ServiceStatus = string
 
 const (
 	// ServiceStatusRunning indicates the service is currently running
@@ -44,4 +31,17 @@ type ServiceInfo struct {
 	ErrorCount    int           `json:"error_count,omitempty"`
 	LastErrorTime time.Time     `json:"last_error_time,omitempty"`
 	CustomStats   interface{}   `json:"custom_stats,omitempty"`
+}
+
+// ServiceManager defines the interface for managing services
+type ServiceManager interface {
+	Initialize() error
+	StartService(name string) error
+	StopService(name string) error
+	StartAll() error
+	StopAll() error
+	Shutdown() error
+	Start(runOnce bool) error
+	GetServiceInfo(name string) (*ServiceInfo, error)
+	GetAllServicesInfo() []*ServiceInfo
 }

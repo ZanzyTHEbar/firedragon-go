@@ -51,8 +51,11 @@ func NewTransactionActor(
 	logger *internal.Logger,
 	config *internal.Config,
 ) *TransactionActor {
+
+	baseActor := NewBaseActor("transaction_service", logger)
+
 	return &TransactionActor{
-		BaseActor:         NewBaseActor("transaction_service", logger),
+		BaseActor:         *baseActor,
 		blockchainClients: blockchainClients,
 		bankClients:       bankClients,
 		fireflyClient:     fireflyClient,

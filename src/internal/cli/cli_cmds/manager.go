@@ -11,16 +11,18 @@ import (
 )
 
 var (
-	globalManager *interfaces.ServiceManager
-	managerOnce   sync.Once
+	managerOnce    sync.Once
+	globalManager  interfaces.ServiceManager
 )
 
 // GetServiceManager returns the global ServiceManager instance
 func GetServiceManager() interfaces.ServiceManager {
 	managerOnce.Do(func() {
-		logger := internal.GetLogger()
-		config := internal.GetConfig()
-		globalManager = services.NewActorServiceManager(config, logger)
+		config, logger := internal.Init()
+		manager := services.NewActorServiceManager(config, logger)
+		// Convert to pointer since interface methods have pointer receivers
+		ptr := &manager
+		globalManager = ptr
 		if err := globalManager.Initialize(); err != nil {
 			logger.Fatal(internal.ComponentService, "Failed to initialize service manager: %v", err)
 		}
