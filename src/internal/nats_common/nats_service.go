@@ -22,7 +22,7 @@ type NATSService struct {
 	sessionID        string
 	logger           *internal.Logger
 	handlers         map[string]interfaces.EventHandler
-	serviceManager   *internal.ServiceManager
+	serviceManager   *interfaces.ServiceManager
 	consumer         string
 	reconnectHandler func()
 	errorHandler     func(error)
@@ -33,7 +33,7 @@ type NATSService struct {
 }
 
 // NewNATSService creates a new NATS service
-func NewNATSService(consumer string, config NATSConfig, mgr *internal.ServiceManager) *NATSService {
+func NewNATSService(consumer string, config NATSConfig, mgr *interfaces.ServiceManager) *NATSService {
 	if config.ClientID == "" {
 		config.ClientID = internal.GenerateClientID()
 	}

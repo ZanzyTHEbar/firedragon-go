@@ -8,9 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ZanzyTHEbar/firedragon-go/adapters/banking"
-	"github.com/ZanzyTHEbar/firedragon-go/adapters/blockchain"
-	"github.com/ZanzyTHEbar/firedragon-go/firefly"
+	"github.com/ZanzyTHEbar/firedragon-go/factory"
 	"github.com/ZanzyTHEbar/firedragon-go/interfaces"
 	"github.com/ZanzyTHEbar/firedragon-go/internal"
 	"github.com/anthdm/hollywood/actor"
@@ -18,14 +16,39 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// ActorServiceManager manages multiple actor services
+type ActorServiceManager struct {
+	// Core components
+	config            *internal.Config
+	logger            *internal.Logger
+	database          interfaces.DatabaseClient
+	fireflyClient     interfaces.FireflyClient
+	blockchainClients map[string]interfaces.BlockchainClient
+	bankClients       []interfaces.BankAccountClient
+
+	// Actor system components
+	engine *actor.Engine
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	// Service registry
+	services    map[string]*actor.PID
+	serviceInfo map[string]*interfaces.ServiceInfo
+}
+
 // NewActorServiceManager creates a new actor-based service manager
-func NewActorServiceManager(config *internal.Config, logger *internal.Logger) *ActorServiceManager {
+func NewActorServiceManager(config *internal.Config, logger *internal.Logger) ActorServiceManager {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Create the actor engine with default config
-	engine := actor.NewEngine(actor.NewEngineConfig())
+	engine, err := actor.NewEngine(actor.NewEngineConfig())	
+	if (err != nil) {
+		logger.Error(internal.ComponentGeneral, "Failed to create actor engine: %v", err)
+		cancel()
+		return ActorServiceManager{}	
+	}
 
-	return &ActorServiceManager{
+	return ActorServiceManager{
 		config:            config,
 		logger:            logger,
 		blockchainClients: make(map[string]interfaces.BlockchainClient),
@@ -33,7 +56,7 @@ func NewActorServiceManager(config *internal.Config, logger *internal.Logger) *A
 		ctx:               ctx,
 		cancel:            cancel,
 		services:          make(map[string]*actor.PID),
-		serviceInfo:       make(map[string]*ServiceInfo),
+		serviceInfo:       make(map[string]*interfaces.ServiceInfo),
 		engine:            engine,
 	}
 }
@@ -41,14 +64,14 @@ func NewActorServiceManager(config *internal.Config, logger *internal.Logger) *A
 // Initialize sets up all components needed for the service manager
 func (m *ActorServiceManager) Initialize() error {
 	// Initialize database
-	db, err := NewSQLiteDatabase(m.config.Database.Path)
+	db, err := factory.NewDatabaseClient(m.config.Database.Path)
 	if err != nil {
 		return fmt.Errorf("failed to initialize database: %w", err)
 	}
 	m.database = db
 
 	// Initialize Firefly III client
-	fireflyClient, err := firefly.New(m.config.Firefly.URL, m.config.Firefly.Token)
+	fireflyClient, err := factory.NewFireflyClient(m.config.Firefly.URL, m.config.Firefly.Token)
 	if err != nil {
 		return fmt.Errorf("failed to initialize Firefly client: %w", err)
 	}
@@ -56,7 +79,7 @@ func (m *ActorServiceManager) Initialize() error {
 
 	// Initialize blockchain clients
 	for chain := range m.config.Wallets {
-		if client := blockchain.NewClient(chain); client != nil {
+		if client := factory.NewBlockchainClient(chain); client != nil {
 			m.blockchainClients[chain] = client
 			m.logger.Info(internal.ComponentGeneral, "Initialized %s client", chain)
 		} else {
@@ -66,11 +89,10 @@ func (m *ActorServiceManager) Initialize() error {
 
 	// Initialize bank account clients
 	for _, bankConfig := range m.config.BankAccounts {
-		if client := banking.NewClient(
+		if client := factory.NewBankingClient(
 			bankConfig.Provider,
 			bankConfig.Name,
-			bankConfig.Credentials["client_id"],
-			bankConfig.Credentials["client_secret"],
+			bankConfig.Credentials,
 		); client != nil {
 			m.bankClients = append(m.bankClients, client)
 			m.logger.Info(internal.ComponentGeneral, "Initialized bank client: %s", bankConfig.Name)
@@ -89,17 +111,16 @@ func (m *ActorServiceManager) Initialize() error {
 		m.config,
 	)
 
-	// Register the actor with the engine and get its PID
-	props := actor.PropsFromProducer(func() actor.Receiver {
-		return transactionActor
-	})
-	transactionPID := m.engine.Spawn(props, "transaction_service")
+	// Register the actor with the engine
+	transactionPID := m.engine.SpawnFunc(func(ctx *actor.Context) {
+		transactionActor.Receive(ctx)
+	}, "transaction_service")
 	m.services["transaction_service"] = transactionPID
 
 	// Initialize service info
-	m.serviceInfo["transaction_service"] = &ServiceInfo{
-		Name:   "transaction_service",
-		Status: ServiceStatusStopped,
+	m.serviceInfo["transaction_service"] = &interfaces.ServiceInfo{
+		Name:   "transaction_service", 
+		Status: interfaces.ServiceStatusStopped,
 	}
 
 	return nil
@@ -109,17 +130,16 @@ func (m *ActorServiceManager) Initialize() error {
 func (m *ActorServiceManager) Register(name string, service ActorService) {
 	m.logger.Debug(internal.ComponentService, "Registering actor service: %s", name)
 
-	// Register the actor with the engine and get its PID
-	props := actor.PropsFromProducer(func() actor.Receiver {
-		return service
-	})
-	pid := m.engine.Spawn(props, name)
+	// Register the actor with the engine
+	pid := m.engine.SpawnFunc(func(ctx *actor.Context) {
+		service.Receive(ctx)
+	}, name)
 	m.services[name] = pid
 
-	// Initialize service info
-	m.serviceInfo[name] = &ServiceInfo{
+	// Initialize service info 
+	m.serviceInfo[name] = &interfaces.ServiceInfo{
 		Name:   name,
-		Status: ServiceStatusStopped,
+		Status: interfaces.ServiceStatusStopped,
 	}
 
 	m.logger.Debug(internal.ComponentService, "Actor service %s registered successfully", name)
@@ -129,22 +149,20 @@ func (m *ActorServiceManager) Register(name string, service ActorService) {
 func (m *ActorServiceManager) StartService(name string) error {
 	m.logger.Debug(internal.ComponentService, "StartService called for actor service: %s", name)
 
-	pid, exists := m.services[name]
-	if !exists {
-		return fmt.Errorf("actor service %s not found", name)
+	if _, exists := m.services[name]; exists {
+		// Update service info
+		if info, ok := m.serviceInfo[name]; ok {
+			info.Status = interfaces.ServiceStatusRunning
+			info.StartTime = time.Now()
+		}
+
+		// Send start message to actor
+		m.engine.Send(m.services[name], StartMsg{})
+		m.logger.Debug(internal.ComponentService, "Actor service %s started", name)
+		return nil
 	}
 
-	// Update service info
-	if info, ok := m.serviceInfo[name]; ok {
-		info.Status = ServiceStatusRunning
-		info.StartTime = time.Now()
-	}
-
-	// Send start message to actor
-	m.engine.Send(pid, StartMsg{})
-
-	m.logger.Debug(internal.ComponentService, "Actor service %s started", name)
-	return nil
+	return fmt.Errorf("actor service %s not found", name)
 }
 
 // StopService stops a specific actor service by name
@@ -158,7 +176,7 @@ func (m *ActorServiceManager) StopService(name string) error {
 
 	// Update service info
 	if info, ok := m.serviceInfo[name]; ok {
-		info.Status = ServiceStatusStopped
+		info.Status = interfaces.ServiceStatusStopped
 	}
 
 	// Send stop message to actor
@@ -184,7 +202,7 @@ func (m *ActorServiceManager) StartAll() error {
 			// Update service info
 			mu.Lock()
 			if info, ok := m.serviceInfo[currentName]; ok {
-				info.Status = ServiceStatusRunning
+				info.Status = interfaces.ServiceStatusRunning
 				info.StartTime = time.Now()
 			}
 			mu.Unlock()
@@ -216,7 +234,7 @@ func (m *ActorServiceManager) StopAll() error {
 			// Update service info
 			mu.Lock()
 			if info, ok := m.serviceInfo[currentName]; ok {
-				info.Status = ServiceStatusStopped
+				info.Status = interfaces.ServiceStatusStopped
 			}
 			mu.Unlock()
 
@@ -299,9 +317,8 @@ func (m *ActorServiceManager) runImportCycle() error {
 }
 
 // GetServiceInfo returns information about a specific service
-func (m *ActorServiceManager) GetServiceInfo(name string) (*ServiceInfo, error) {
-	pid, exists := m.services[name]
-	if !exists {
+func (m *ActorServiceManager) GetServiceInfo(name string) (*interfaces.ServiceInfo, error) {
+	if _, exists := m.services[name]; !exists {
 		return nil, fmt.Errorf("service %s not found", name)
 	}
 
@@ -317,8 +334,8 @@ func (m *ActorServiceManager) GetServiceInfo(name string) (*ServiceInfo, error) 
 }
 
 // GetAllServicesInfo returns information about all registered services
-func (m *ActorServiceManager) GetAllServicesInfo() []*ServiceInfo {
-	result := make([]*ServiceInfo, 0, len(m.serviceInfo))
+func (m *ActorServiceManager) GetAllServicesInfo() []*interfaces.ServiceInfo {
+	result := make([]*interfaces.ServiceInfo, 0, len(m.serviceInfo))
 
 	for name := range m.services {
 		info, err := m.GetServiceInfo(name)
@@ -384,7 +401,7 @@ func StartActorServices(natsChannel string, conn *nats.Conn, mgr *ActorServiceMa
 }
 
 // publishActorServiceStatus publishes service status information via NATS
-func publishActorServiceStatus(conn *nats.Conn, services []*ServiceInfo, log *internal.Logger) {
+func publishActorServiceStatus(conn *nats.Conn, services []*interfaces.ServiceInfo, log *internal.Logger) {
 	data, err := json.Marshal(services)
 	if err != nil {
 		log.Error(internal.ComponentService, "Error marshaling service status: %v", err)

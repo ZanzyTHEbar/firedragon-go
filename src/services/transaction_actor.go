@@ -19,6 +19,7 @@ type TransactionActor struct {
 	fireflyClient     interfaces.FireflyClient
 	db                interfaces.DatabaseClient
 	config            *internal.Config
+	stopChan          chan struct{}
 
 	// Last run statistics
 	mu            sync.Mutex
@@ -57,108 +58,135 @@ func NewTransactionActor(
 		fireflyClient:     fireflyClient,
 		db:                db,
 		config:            config,
+		stopChan:          make(chan struct{}),
 	}
 }
 
-// Receive implements the actor.Receiver interface
-func (a *TransactionActor) Receive(ctx actor.Context) {
+// Receive handles incoming messages
+func (a *TransactionActor) Receive(ctx *actor.Context) {
 	switch msg := ctx.Message().(type) {
 	case StartMsg:
-		a.logger.Info(internal.ComponentTransaction, "Transaction actor started")
-
-		// Schedule periodic runs if not already running
-		if a.config.Interval != "" {
-			interval, err := time.ParseDuration(a.config.Interval)
-			if err != nil {
-				a.logger.Warn(internal.ComponentTransaction, "Invalid interval %s, using 15m default", a.config.Interval)
-				interval = 15 * time.Minute
-			}
-
-			ctx.Engine().SendWithInterval(ctx.Self(), interval, ProcessRequest{})
-		}
-
+		a.onStart()
 	case StopMsg:
-		a.logger.Info(internal.ComponentTransaction, "Transaction actor stopping")
-
+		a.onStop()
 	case ProcessRequest:
-		a.logger.Info(internal.ComponentTransaction, "Processing transactions")
-
-		var errors []error
-		importCount := 0
-
-		// Process transactions based on the request flags
-		if !msg.BankOnly {
-			count, errs := a.processBlockchainTransactions(ctx)
-			importCount += count
-			errors = append(errors, errs...)
+		response := a.onProcess(msg)
+		if ctx.Sender() != nil {
+			ctx.Respond(response)
 		}
-
-		if !msg.BlockchainOnly {
-			count, errs := a.processBankTransactions(ctx)
-			importCount += count
-			errors = append(errors, errs...)
-		}
-
-		// Update statistics
-		a.mu.Lock()
-		a.lastRunTime = time.Now()
-		a.importedCount = importCount
-		if len(errors) > 0 {
-			a.lastError = errors[0]
-			a.errorCount += len(errors)
-		}
-		a.mu.Unlock()
-
-		// Log results
-		if len(errors) > 0 {
-			a.logger.Warn(internal.ComponentTransaction, "Transaction processing completed with %d errors", len(errors))
-		} else {
-			a.logger.Info(internal.ComponentTransaction, "Transaction processing completed successfully")
-		}
-		a.logger.Info(internal.ComponentTransaction, "Imported %d transactions", importCount)
-
 	case StatusRequestMsg:
-		a.mu.Lock()
-		stats := map[string]interface{}{
-			"lastRunTime":   a.lastRunTime,
-			"importedCount": a.importedCount,
-		}
-		a.mu.Unlock()
-
-		ctx.Respond(StatusResponseMsg{
-			Status:      ServiceStatusRunning,
-			LastActive:  a.lastRunTime,
-			ErrorCount:  a.errorCount,
-			LastError:   a.lastError,
-			CustomStats: stats,
-		})
+		a.onStatusRequest(ctx)
 	}
 }
 
-// processBlockchainTransactions imports transactions from blockchain wallets
-func (a *TransactionActor) processBlockchainTransactions(ctx actor.Context) (int, []error) {
+func (a *TransactionActor) onStart() {
+	a.logger.Info(internal.ComponentTransaction, "Starting transaction actor")
+	
+	// Start periodic processing if interval is configured
+	if a.config.Interval != "" {
+		duration, err := time.ParseDuration(a.config.Interval)
+		if err != nil {
+			a.logger.Error(internal.ComponentTransaction, "Invalid interval format: %v", err)
+			return
+		}
+
+		// Schedule periodic imports
+		go func() {
+			ticker := time.NewTicker(duration)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ticker.C:
+					a.onProcess(ProcessRequest{})
+				case <-a.stopChan:
+					return
+				}
+			}
+		}()
+	}
+}
+
+func (a *TransactionActor) onStop() {
+	a.logger.Info(internal.ComponentTransaction, "Stopping transaction actor")
+	close(a.stopChan)
+}
+
+func (a *TransactionActor) onStatusRequest(ctx *actor.Context) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	response := StatusResponseMsg{
+		Status:     interfaces.ServiceStatusRunning,
+		LastActive: a.lastRunTime,
+		ErrorCount: a.errorCount,
+		LastError:  a.lastError,
+		CustomStats: map[string]interface{}{
+			"imported_count": a.importedCount,
+		},
+	}
+
+	if ctx.Sender() != nil {
+		ctx.Respond(response)
+	}
+}
+
+func (a *TransactionActor) onProcess(req ProcessRequest) ProcessResponse {
+	start := time.Now()
+	var totalImported int
+	var allErrors []error
+
+	// Process blockchain transactions if not bank-only
+	if !req.BankOnly {
+		imported, errors := a.processBlockchainTransactions()
+		totalImported += imported
+		allErrors = append(allErrors, errors...)
+	}
+
+	// Process bank transactions if not blockchain-only
+	if !req.BlockchainOnly {
+		imported, errors := a.processBankTransactions()
+		totalImported += imported
+		allErrors = append(allErrors, errors...)
+	}
+
+	// Update statistics
+	a.mu.Lock()
+	a.lastRunTime = start
+	a.importedCount += totalImported
+	if len(allErrors) > 0 {
+		a.lastError = allErrors[0]
+		a.errorCount += len(allErrors)
+	}
+	a.mu.Unlock()
+
+	return ProcessResponse{
+		ImportedCount: totalImported,
+		Errors:       allErrors,
+		CompletedAt:  time.Now(),
+	}
+}
+
+// processBlockchainTransactions imports transactions from configured wallets
+func (a *TransactionActor) processBlockchainTransactions() (int, []error) {
 	var (
+		g          errgroup.Group
+		mu         sync.Mutex
 		importCount int
 		errors      []error
-		g           errgroup.Group
-		mu          sync.Mutex // Protects importCount and errors
 	)
 
 	for chain, address := range a.config.Wallets {
 		client, ok := a.blockchainClients[chain]
 		if !ok {
-			a.logger.Warn(internal.ComponentTransaction, "No client found for %s", chain)
-			continue
+			continue // Skip unsupported chains
 		}
 
-		// Capture loop variables to avoid closure issues
-		currentChain := chain
+		currentClient := client // Capture loop variable
 		currentAddress := address
-		currentClient := client
+		currentChain := chain
 
 		g.Go(func() error {
-			a.logger.Info(internal.ComponentTransaction, "Processing %s transactions for %s", currentChain, currentAddress)
-
 			// Fetch transactions
 			transactions, err := currentClient.FetchTransactions(currentAddress)
 			if err != nil {
@@ -183,9 +211,9 @@ func (a *TransactionActor) processBlockchainTransactions(ctx actor.Context) (int
 				}
 
 				// Get currency ID from Firefly
-				currencyID, err := a.fireflyClient.GetCurrencyID(currentChain)
+				currencyID, err := a.fireflyClient.GetCurrencyID(tx.Currency)
 				if err != nil {
-					a.logger.Error(internal.ComponentTransaction, "Failed to get currency ID for %s: %v", currentChain, err)
+					a.logger.Error(internal.ComponentTransaction, "Failed to get currency ID for %s: %v", tx.Currency, err)
 					continue
 				}
 
@@ -197,8 +225,9 @@ func (a *TransactionActor) processBlockchainTransactions(ctx actor.Context) (int
 
 				// Mark as imported
 				if err := a.db.MarkTransactionAsImported(tx.ID, map[string]string{
-					"chain":   currentChain,
-					"address": currentAddress,
+						"chain":    currentChain,
+						"address": currentAddress,
+						"currency": tx.Currency,
 				}); err != nil {
 					a.logger.Error(internal.ComponentTransaction, "Failed to mark transaction %s as imported: %v", tx.ID, err)
 				}
@@ -210,13 +239,12 @@ func (a *TransactionActor) processBlockchainTransactions(ctx actor.Context) (int
 			importCount += localCount
 			mu.Unlock()
 
-			a.logger.Info(internal.ComponentTransaction, "Processed %d transactions for %s wallet", localCount, currentChain)
 			return nil
 		})
 	}
 
-	// Wait for all goroutines to complete
 	if err := g.Wait(); err != nil {
+		// Individual errors are already collected
 		a.logger.Error(internal.ComponentTransaction, "Error processing blockchain transactions: %v", err)
 	}
 
@@ -224,56 +252,20 @@ func (a *TransactionActor) processBlockchainTransactions(ctx actor.Context) (int
 }
 
 // processBankTransactions imports transactions from configured bank accounts
-func (a *TransactionActor) processBankTransactions(ctx actor.Context) (int, []error) {
-	if len(a.bankClients) == 0 {
-		return 0, nil
-	}
-
+func (a *TransactionActor) processBankTransactions() (int, []error) {
 	var (
+		g          errgroup.Group
+		mu         sync.Mutex
 		importCount int
 		errors      []error
-		g           errgroup.Group
-		mu          sync.Mutex // Protects importCount and errors
 	)
 
-	for i, client := range a.bankClients {
-		// Find matching bank config
-		var bankConfig *internal.BankAccountConfig
-		for j := range a.config.BankAccounts {
-			if a.config.BankAccounts[j].Name == client.GetAccountName() {
-				bankConfig = &a.config.BankAccounts[j]
-				break
-			}
-		}
-
-		if bankConfig == nil {
-			err := fmt.Errorf("bank account configuration not found for: %s", client.GetAccountName())
-			errors = append(errors, err)
-			continue
-		}
-
-		// Capture loop variables
-		currentClient := client
-		currentConfig := bankConfig
-		currentIndex := i
+	for _, client := range a.bankClients {
+		currentClient := client // Capture loop variable
 
 		g.Go(func() error {
-			a.logger.Info(internal.ComponentTransaction, "Processing bank transactions for %s (client %d)",
-				currentClient.GetAccountName(), currentIndex)
-
-			// Get last import time
-			lastImport, err := a.db.GetLastImportTime("bank:" + currentClient.GetAccountName())
-			if err != nil {
-				a.logger.Warn(internal.ComponentTransaction, "Failed to get last import time: %v", err)
-				lastImport = time.Now().AddDate(0, -1, 0) // Default to 1 month ago
-			}
-
-			// Format dates for bank API
-			fromDate := lastImport.Format("2006-01-02")
-			toDate := time.Now().Format("2006-01-02")
-
-			// Fetch transactions with configured limit
-			transactions, err := currentClient.FetchTransactions(currentConfig.Limit, fromDate, toDate)
+			// Fetch transactions
+			transactions, err := currentClient.FetchTransactions(100, "", "") // Use reasonable defaults
 			if err != nil {
 				errMsg := fmt.Errorf("failed to fetch bank transactions: %w", err)
 				mu.Lock()
@@ -324,20 +316,10 @@ func (a *TransactionActor) processBankTransactions(ctx actor.Context) (int, []er
 			importCount += localCount
 			mu.Unlock()
 
-			// Update last import time
-			if localCount > 0 {
-				if err := a.db.SetLastImportTime("bank:"+currentClient.GetAccountName(), time.Now()); err != nil {
-					a.logger.Error(internal.ComponentTransaction, "Failed to update last import time: %v", err)
-				}
-			}
-
-			a.logger.Info(internal.ComponentTransaction, "Processed %d transactions for bank account %s",
-				localCount, currentClient.GetAccountName())
 			return nil
 		})
 	}
 
-	// Wait for all goroutines to complete
 	if err := g.Wait(); err != nil {
 		a.logger.Error(internal.ComponentTransaction, "Error processing bank transactions: %v", err)
 	}
@@ -347,8 +329,8 @@ func (a *TransactionActor) processBankTransactions(ctx actor.Context) (int, []er
 
 // RunImportCycle processes all transactions from all sources
 func (a *TransactionActor) RunImportCycle() (int, []error) {
-	blockchainCount, blockchainErrors := a.processBlockchainTransactions(nil)
-	bankCount, bankErrors := a.processBankTransactions(nil)
+	blockchainCount, blockchainErrors := a.processBlockchainTransactions()
+	bankCount, bankErrors := a.processBankTransactions()
 
 	return blockchainCount + bankCount, append(blockchainErrors, bankErrors...)
 }

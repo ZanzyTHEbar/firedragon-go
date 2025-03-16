@@ -11,6 +11,10 @@ import (
 	"github.com/ZanzyTHEbar/firedragon-go/internal"
 )
 
+func NewDatabaseClient(path string) (interfaces.DatabaseClient, error) {
+	return internal.NewSQLiteDatabase(path)
+}
+
 // NewBlockchainClient creates a blockchain client based on the chain type
 func NewBlockchainClient(chain string) interfaces.BlockchainClient {
 	switch chain {
