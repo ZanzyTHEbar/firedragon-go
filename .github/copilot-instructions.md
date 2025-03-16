@@ -139,6 +139,7 @@ For each component, provide:
 - **APIs**:
   - [Firefly III API](https://api-docs.firefly-iii.org/)
   - [Enable Banking API](https://enablebanking.com/docs)
+  - [Enable Banking API Reference](https://enablebanking.com/docs/api/reference)
   - [Etherscan API](https://etherscan.io/apis)
 - **Libraries**: Mention Go packages like `net/http` (API calls), `database/sql` (SQLite).
 - **References**: Link to relevant GitHub repos or docs for tools used.

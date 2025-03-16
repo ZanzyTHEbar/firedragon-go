@@ -12,7 +12,7 @@ func Init() (*Config, *Logger) {
 	}
 
 	// set storage path
-	cfg.Server.StoragePath = "./storage"
+	cfg.StoragePath = "./storage"
 
 	var logger *Logger
 

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ZanzyTHEbar/firedragon-go/interfaces"
 	"github.com/ZanzyTHEbar/firedragon-go/internal"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -20,7 +21,7 @@ type NATSService struct {
 	clientID         string
 	sessionID        string
 	logger           *internal.Logger
-	handlers         map[string]internal.EventHandler
+	handlers         map[string]interfaces.EventHandler
 	serviceManager   *internal.ServiceManager
 	consumer         string
 	reconnectHandler func()
@@ -46,7 +47,7 @@ func NewNATSService(consumer string, config NATSConfig, mgr *internal.ServiceMan
 			clientID:       config.ClientID,
 			sessionID:      fmt.Sprintf("%s-%d", config.ClientID, time.Now().Unix()),
 			logger:         internal.GetLogger(),
-			handlers:       make(map[string]internal.EventHandler),
+			handlers:       make(map[string]interfaces.EventHandler),
 			serviceManager: mgr,
 			consumer:       consumer,
 			subscriptions:  make(map[string]Subscription),
@@ -61,7 +62,7 @@ func NewNATSService(consumer string, config NATSConfig, mgr *internal.ServiceMan
 		clientID:       config.ClientID,
 		sessionID:      fmt.Sprintf("%s-%d", config.ClientID, time.Now().Unix()),
 		logger:         internal.GetLogger(),
-		handlers:       make(map[string]internal.EventHandler),
+		handlers:       make(map[string]interfaces.EventHandler),
 		serviceManager: mgr,
 		consumer:       consumer,
 		subscriptions:  make(map[string]Subscription),

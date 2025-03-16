@@ -1,8 +1,4 @@
-Below, I've implemented the supplemental diagrams as requested, focusing on technical accuracy and detail. These diagrams are designed to complement an Engineering Design Document (EDD) by providing clear, visual representations of the system's workflows, structure, and interactions. I've used text-based formats (Mermaid and PlantUML) for compatibility with this chat environment, ensuring they are both detailed and meticulous.
-
----
-
-## 1. Flow Chart for Main Workflow
+# 1. Flow Chart for Main Workflow
 
 This flow chart outlines the high-level process of the application, from startup to shutdown, accommodating both foreground and detached modes.
 

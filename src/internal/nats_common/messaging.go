@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/ZanzyTHEbar/firedragon-go/internal"
+	"github.com/ZanzyTHEbar/firedragon-go/interfaces"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -20,7 +20,7 @@ type MessagingPort interface {
 	Connect() error
 	Close() error
 
-	RegisterEventHandler(subject string, handler internal.EventHandler) error
+	RegisterEventHandler(subject string, handler interfaces.EventHandler) error
 	UnregisterEventHandler(subject string) error
 
 	// Request-Reply

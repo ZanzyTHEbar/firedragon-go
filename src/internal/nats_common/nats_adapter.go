@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ZanzyTHEbar/firedragon-go/interfaces"
 	"github.com/ZanzyTHEbar/firedragon-go/internal"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -22,7 +23,7 @@ type BaseNATSAdapter struct {
 	Logger    *internal.Logger
 	Streams   map[string]jetstream.Stream
 	Consumers map[string]jetstream.Consumer
-	handlers  map[string]internal.EventHandler
+	handlers  map[string]interfaces.EventHandler
 	opts      []nats.Option
 
 	// Add these new fields
@@ -37,8 +38,8 @@ func NewBaseNATSAdapter(config NATSConfig, logger *internal.Logger) *BaseNATSAda
 		Logger:        logger,
 		Streams:       make(map[string]jetstream.Stream),
 		Consumers:     make(map[string]jetstream.Consumer),
-		handlers:      make(map[string]internal.EventHandler),
-		subscriptions: make(map[string]Subscription), // Initialize the new map
+		handlers:      make(map[string]interfaces.EventHandler),
+		subscriptions: make(map[string]Subscription),
 	}
 }
 
@@ -488,7 +489,7 @@ func (a *BaseNATSAdapter) GetStreamInfo(stream string) (*jetstream.StreamInfo, e
 }
 
 // RegisterEventHandler registers a handler function for a specific subject
-func (a *BaseNATSAdapter) RegisterEventHandler(subject string, handler internal.EventHandler) error {
+func (a *BaseNATSAdapter) RegisterEventHandler(subject string, handler interfaces.EventHandler) error {
 	// Check if subject is included in the stream
 	if a.Config.StreamName != "" {
 		found := false

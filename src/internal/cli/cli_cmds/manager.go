@@ -24,6 +24,7 @@ func GetServiceManager() *internal.ServiceManager {
 }
 
 func GeneratePalette(params *cli.CmdParams) []*cobra.Command {
+
 	// Global commands
 	helpCmd := NewHelp(params)
 	versionCmd := NewVersion(params)
