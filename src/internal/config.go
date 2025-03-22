@@ -6,160 +6,268 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/viper"
 )
 
-// Config represents the Firedragon configuration
+// Config represents the application configuration
 type Config struct {
-	// Firefly III configuration
-	Firefly struct {
-		URL   string `mapstructure:"url"`   // Firefly III API URL
-		Token string `mapstructure:"token"` // Firefly III API token
-	} `mapstructure:"firefly"`
-
-	// Wallets configuration - map of wallet chain to address
-	Wallets map[string]string `mapstructure:"wallets"` // e.g., "ethereum": "0xAddress"
-
-	// BankAccounts configuration
-	BankAccounts []BankAccountConfig `mapstructure:"bank_accounts"`
-
-	// Interval for background operations
-	Interval string `mapstructure:"interval"` // e.g., "15m" for background task frequency
-
-	// Database configuration
-	Database struct {
-		Path string `mapstructure:"path"` // Path to SQLite database file
-	} `mapstructure:"database"`
-
-	// Debug mode
-	Debug       bool   `mapstructure:"debug"`
-	StoragePath string `mapstructure:"storage_path"` // Path to storage directory
-	// LogLevel for the application
-	LogLevel string `mapstructure:"log_level"` // Log level for the application
-	// LogFile for the application
-	LogFile string `mapstructure:"log_file"` // Log file for the application
-	// LogFormat for the application
-	LogFormat string `mapstructure:"log_format"` // Log format for the application
-	// LogRotation for the application
-	LogRotation bool `mapstructure:"log_rotation"` // Enable log rotation
-	// LogRotationMaxSize for the application
-	LogRotationMaxSize int `mapstructure:"log_rotation_max_size"` // Max size for log rotation
+	Firefly   FireflyConfig   `mapstructure:"firefly"`
+	Ethereum  EthereumConfig  `mapstructure:"ethereum"`
+	Solana    SolanaConfig    `mapstructure:"solana"`
+	Sui       SuiConfig       `mapstructure:"sui"`
+	Banking   BankingConfig   `mapstructure:"banking"`
+	Database  DatabaseConfig  `mapstructure:"database"`
+	Service   ServiceConfig   `mapstructure:"service"`
 }
 
-// BankAccountConfig represents configuration for a bank account
-type BankAccountConfig struct {
-	Name        string            `mapstructure:"name"`       // Account name
-	Provider    string            `mapstructure:"provider"`   // e.g., "enable_banking"
-	Credentials map[string]string `mapstructure:"-"`          // Loaded from env vars (e.g., ENABLE_CLIENT_ID)
-	Currencies  map[string]string `mapstructure:"currencies"` // Currency to Firefly account ID
-	Limit       int               `mapstructure:"limit"`      // Default transaction limit
-	FromDate    string            `mapstructure:"from_date"`  // Optional start date (e.g., "2023-01-01")
-	ToDate      string            `mapstructure:"to_date"`    // Optional end date (e.g., "2023-12-31")
+// FireflyConfig contains Firefly III API configuration
+type FireflyConfig struct {
+	URL   string `mapstructure:"url"`
+	Token string `mapstructure:"token"`
 }
 
-// LoadConfig loads the configuration from various sources
-func LoadConfig(configFile string) (*Config, error) {
+// EthereumConfig contains Ethereum configuration
+type EthereumConfig struct {
+	APIKey      string   `mapstructure:"api_key"`
+	Addresses   []string `mapstructure:"addresses"`
+	NetworkType string   `mapstructure:"network_type"` // mainnet, testnet, etc.
+}
+
+// SolanaConfig contains Solana configuration
+type SolanaConfig struct {
+	RPCEndpoint string   `mapstructure:"rpc_endpoint"`
+	Addresses   []string `mapstructure:"addresses"`
+	NetworkType string   `mapstructure:"network_type"` // mainnet, testnet, etc.
+}
+
+// SuiConfig contains SUI configuration
+type SuiConfig struct {
+	RPCEndpoint string   `mapstructure:"rpc_endpoint"`
+	Addresses   []string `mapstructure:"addresses"`
+	NetworkType string   `mapstructure:"network_type"` // mainnet, testnet, etc.
+}
+
+// BankingConfig contains banking provider configuration
+type BankingConfig struct {
+	Enable EnableBankingConfig `mapstructure:"enable"`
+}
+
+// EnableBankingConfig contains Enable Banking API configuration
+type EnableBankingConfig struct {
+	ClientID     string `mapstructure:"client_id"`
+	ClientSecret string `mapstructure:"client_secret"`
+	RedirectURI  string `mapstructure:"redirect_uri"`
+	AccountIDs   []string `mapstructure:"account_ids"`
+}
+
+// DatabaseConfig contains database configuration
+type DatabaseConfig struct {
+	Path     string `mapstructure:"path"`
+	Type     string `mapstructure:"type"` // sqlite, postgres, etc.
+	FileName string `mapstructure:"filename"`
+}
+
+// ServiceConfig contains service-level configuration
+type ServiceConfig struct {
+	UpdateInterval      time.Duration `mapstructure:"update_interval"`
+	MaxRetries         int           `mapstructure:"max_retries"`
+	RetryDelay         time.Duration `mapstructure:"retry_delay"`
+	LogLevel           string        `mapstructure:"log_level"`
+	MetricsEnabled     bool          `mapstructure:"metrics_enabled"`
+	MetricsInterval    time.Duration `mapstructure:"metrics_interval"`
+}
+
+// LoadConfig loads the application configuration from file and environment
+func LoadConfig(configPath string) (*Config, error) {
 	v := viper.New()
 
-	// Set default values
-	setDefaultConfig(v)
+	// Set default configuration values
+	setDefaults(v)
 
-	// Read configuration from file if provided
-	if configFile != "" {
-		v.SetConfigFile(configFile)
+	// Load configuration from file
+	if configPath != "" {
+		v.SetConfigFile(configPath)
 	} else {
-		// Look for config in the current directory and in /etc/firedragon/
+		// Look for config in default locations
 		v.AddConfigPath(".")
-		v.AddConfigPath("/etc/firedragon/")
+		v.AddConfigPath("$HOME/.config/firedragon")
+		v.AddConfigPath("/etc/firedragon")
 		v.SetConfigName("config")
-		v.SetConfigType("json") // Using JSON as specified in the design doc
+		v.SetConfigType("yaml")
 	}
 
-	// Read the config file
+	// Read configuration file
 	if err := v.ReadInConfig(); err != nil {
-		// It's okay if the config file doesn't exist
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return nil, err
+		// Only return error if config file was explicitly specified
+		if configPath != "" {
+			return nil, fmt.Errorf("failed to read config file: %w", err)
 		}
 	}
 
-	// Override with environment variables prefixed with FIREDRAGON_
-	v.SetEnvPrefix("FIREDRAGON")
-	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	// Load environment variables
 	v.AutomaticEnv()
+	v.SetEnvPrefix("FIREDRAGON")
+	v.SetEnvKeyReplacer(NewEnvKeyReplacer())
 
-	// Parse the configuration
+	// Bind environment variables
+	bindEnvVariables(v)
+
 	var config Config
 	if err := v.Unmarshal(&config); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	// Load credentials from environment variables
-	for i := range config.BankAccounts {
-		config.BankAccounts[i].Credentials = make(map[string]string)
-
-		// Handle Enable Banking credentials if provider is 'enable_banking'
-		if config.BankAccounts[i].Provider == "enable_banking" {
-			config.BankAccounts[i].Credentials["client_id"] = os.Getenv("ENABLE_CLIENT_ID")
-			config.BankAccounts[i].Credentials["client_secret"] = os.Getenv("ENABLE_CLIENT_SECRET")
-		}
-
-		// Handle other credential types as needed
+	// Validate configuration
+	if err := validateConfig(&config); err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	// Load blockchain API keys from environment variables
-	if _, ok := config.Wallets["ethereum"]; ok {
-		// We have an Ethereum wallet, so we need the Etherscan API key
-		etherScanApiKey := os.Getenv("ETHERSCAN_API_KEY")
-		if etherScanApiKey == "" {
-			return nil, fmt.Errorf("ETHERSCAN_API_KEY environment variable not set")
-		}
+	// Ensure required directories exist
+	if err := ensureDirectories(&config); err != nil {
+		return nil, fmt.Errorf("failed to create directories: %w", err)
 	}
 
 	return &config, nil
 }
 
-// SaveConfig saves the configuration to disk
-func SaveConfig(config *Config) error {
-	v := viper.New()
-	v.SetConfigFile(viper.ConfigFileUsed())
+// setDefaults sets default configuration values
+func setDefaults(v *viper.Viper) {
+	v.SetDefault("service.update_interval", "15m")
+	v.SetDefault("service.max_retries", 3)
+	v.SetDefault("service.retry_delay", "1m")
+	v.SetDefault("service.log_level", "info")
+	v.SetDefault("service.metrics_enabled", true)
+	v.SetDefault("service.metrics_interval", "1m")
+	v.SetDefault("database.type", "sqlite")
+	v.SetDefault("database.filename", "firedragon.db")
+}
 
-	// Marshal the config to map
-	configMap := make(map[string]interface{})
-	data, err := json.Marshal(config)
-	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
+// bindEnvVariables binds environment variables to configuration
+func bindEnvVariables(v *viper.Viper) {
+	// Firefly III
+	v.BindEnv("firefly.url", "FIREFLY_URL")
+	v.BindEnv("firefly.token", "FIREFLY_TOKEN")
+
+	// Ethereum
+	v.BindEnv("ethereum.api_key", "ETHERSCAN_API_KEY")
+	v.BindEnv("ethereum.network_type", "ETH_NETWORK")
+
+	// Enable Banking
+	v.BindEnv("banking.enable.client_id", "ENABLE_CLIENT_ID")
+	v.BindEnv("banking.enable.client_secret", "ENABLE_CLIENT_SECRET")
+	v.BindEnv("banking.enable.redirect_uri", "ENABLE_REDIRECT_URI")
+}
+
+// validateConfig validates the configuration
+func validateConfig(config *Config) error {
+	// Validate Firefly III configuration
+	if config.Firefly.URL == "" {
+		return fmt.Errorf("firefly.url is required")
+	}
+	if config.Firefly.Token == "" {
+		return fmt.Errorf("firefly.token is required")
 	}
 
-	if err := json.Unmarshal(data, &configMap); err != nil {
-		return fmt.Errorf("failed to unmarshal config to map: %w", err)
+	// Validate blockchain configuration if addresses are provided
+	if len(config.Ethereum.Addresses) > 0 && config.Ethereum.APIKey == "" {
+		return fmt.Errorf("ethereum.api_key is required when addresses are configured")
 	}
 
-	// Set all values in viper
-	for k, v := range configMap {
-		viper.Set(k, v)
-	}
-
-	// Save the config file
-	if err := viper.WriteConfig(); err != nil {
-		return fmt.Errorf("failed to write config: %w", err)
+	// Validate banking configuration if accounts are configured
+	if len(config.Banking.Enable.AccountIDs) > 0 {
+		if config.Banking.Enable.ClientID == "" {
+			return fmt.Errorf("banking.enable.client_id is required when accounts are configured")
+		}
+		if config.Banking.Enable.ClientSecret == "" {
+			return fmt.Errorf("banking.enable.client_secret is required when accounts are configured")
+		}
+		if config.Banking.Enable.RedirectURI == "" {
+			return fmt.Errorf("banking.enable.redirect_uri is required when accounts are configured")
+		}
 	}
 
 	return nil
 }
 
-// setDefaultConfig sets default configuration values
-func setDefaultConfig(v *viper.Viper) {
-	// Firefly III defaults
-	v.SetDefault("firefly.url", "http://localhost:8080")
+// ensureDirectories creates required directories
+func ensureDirectories(config *Config) error {
+	// Create database directory if needed
+	if config.Database.Path != "" {
+		if err := os.MkdirAll(config.Database.Path, 0755); err != nil {
+			return fmt.Errorf("failed to create database directory: %w", err)
+		}
+	}
 
-	// Database defaults
-	v.SetDefault("database.path", filepath.Join(".", "data", "firedragon.db"))
+	return nil
+}
 
-	// Background task interval default
-	v.SetDefault("interval", "15m")
+// SaveConfig saves the configuration to a file
+func SaveConfig(config *Config, path string) error {
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
 
-	// Debug mode default
-	v.SetDefault("debug", false)
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	return nil
+}
+
+// NewEnvKeyReplacer returns a strings.Replacer for environment variable keys
+func NewEnvKeyReplacer() *strings.Replacer {
+	return strings.NewReplacer(".", "_")
+}
+
+// GetDefaultConfigPath returns the default configuration file path
+func GetDefaultConfigPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join("/etc/firedragon", "config.yaml")
+	}
+	return filepath.Join(home, ".config", "firedragon", "config.yaml")
+}
+
+// GetConfigTemplate returns a template configuration
+func GetConfigTemplate() *Config {
+	return &Config{
+		Firefly: FireflyConfig{
+			URL:   "http://localhost:8080",
+			Token: "your-token-here",
+		},
+		Ethereum: EthereumConfig{
+			APIKey:      "your-etherscan-api-key",
+			NetworkType: "mainnet",
+			Addresses:   []string{"0x..."},
+		},
+		Solana: SolanaConfig{
+			RPCEndpoint: "https://api.mainnet-beta.solana.com",
+			NetworkType: "mainnet",
+			Addresses:   []string{"..."},
+		},
+		Banking: BankingConfig{
+			Enable: EnableBankingConfig{
+				ClientID:     "your-client-id",
+				ClientSecret: "your-client-secret",
+				RedirectURI:  "http://localhost:8081/callback",
+				AccountIDs:   []string{"account-id"},
+			},
+		},
+		Service: ServiceConfig{
+			UpdateInterval:   15 * time.Minute,
+			MaxRetries:      3,
+			RetryDelay:      time.Minute,
+			LogLevel:        "info",
+			MetricsEnabled:  true,
+			MetricsInterval: time.Minute,
+		},
+	}
 }

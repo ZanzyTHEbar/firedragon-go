@@ -26,7 +26,7 @@ func NewSolanaClient() *SolanaClient {
 }
 
 // FetchTransactions retrieves transactions for a Solana address
-func (c *SolanaClient) FetchTransactions(address string) ([]firefly.CustomTransaction, error) {
+func (c *SolanaClient) FetchTransactions(address string) ([]firefly.TransactionModel, error) {
 	url := fmt.Sprintf("%s/account/transactions?account=%s&limit=50", c.endpoint, address)
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -61,7 +61,7 @@ func (c *SolanaClient) FetchTransactions(address string) ([]firefly.CustomTransa
 		return nil, fmt.Errorf("solana API error")
 	}
 
-	var transactions []firefly.CustomTransaction
+	var transactions []firefly.TransactionModel
 	for _, tx := range result.Data {
 		// Skip failed transactions
 		if tx.Status != "Success" {
@@ -77,7 +77,7 @@ func (c *SolanaClient) FetchTransactions(address string) ([]firefly.CustomTransa
 			transType = "deposit"
 		}
 
-		transactions = append(transactions, firefly.CustomTransaction{
+		transactions = append(transactions, firefly.TransactionModel{
 			ID:          tx.TxHash,
 			Currency:    "SOL",
 			Amount:      tx.Amount,

@@ -41,3 +41,4 @@ extras/
 logs/
 .storage/
 shared/gen/
+memory-bank/

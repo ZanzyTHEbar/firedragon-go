@@ -6,43 +6,70 @@ import (
 	"github.com/ZanzyTHEbar/firedragon-go/firefly"
 )
 
-// BlockchainClient defines the interface for blockchain transaction adapters
+// ErrorType represents different types of client errors
+type ErrorType string
+
+const (
+	ErrorTypeNetwork  ErrorType = "network"
+	ErrorTypeAuth     ErrorType = "auth"
+	ErrorTypeInvalid  ErrorType = "invalid"
+	ErrorTypeNotFound ErrorType = "not_found"
+)
+
+// ClientError represents an error from a client
+type ClientError struct {
+	Type    ErrorType
+	Message string
+	Err     error
+}
+
+func (e *ClientError) Error() string {
+	if e.Err != nil {
+		return e.Message + ": " + e.Err.Error()
+	}
+	return e.Message
+}
+
+// NewClientError creates a new client error
+func NewClientError(errorType ErrorType, message string, err error) error {
+	return &ClientError{
+		Type:    errorType,
+		Message: message,
+		Err:     err,
+	}
+}
+
+// BlockchainClient defines the interface for blockchain clients
 type BlockchainClient interface {
-	// FetchTransactions retrieves transactions for a specific wallet address
-	FetchTransactions(address string) ([]firefly.CustomTransaction, error)
+	// FetchTransactions retrieves transactions for a wallet address
+	FetchTransactions(address string) ([]firefly.Transaction, error)
 
-	// GetBalance retrieves the current balance for a specific wallet address
-	GetBalance(address string) (float64, error)
+	// GetBalance gets the current balance for a wallet address
+	GetBalance(address string) (firefly.Balance, error)
 
-	// GetName returns the name of the blockchain (e.g., "ethereum", "solana", "sui")
-	GetName() string
+	// GetChainType returns the blockchain type (e.g., "ethereum", "solana")
+	GetChainType() string
+
+	// IsValidAddress validates a wallet address format
+	IsValidAddress(address string) bool
 }
 
-// BankAccountClient defines the interface for bank account adapters
-type BankAccountClient interface {
-	// FetchBalances retrieves all account balances
-	FetchBalances() ([]Balance, error)
+// BankClient defines the interface for banking clients
+type BankClient interface {
+	// FetchTransactions retrieves transactions for a bank account
+	FetchTransactions(accountID string) ([]firefly.Transaction, error)
 
-	// FetchTransactions retrieves transactions with customization options
-	FetchTransactions(limit int, fromDate, toDate string) ([]firefly.CustomTransaction, error)
+	// GetBalance gets the current balance for a bank account
+	GetBalance(accountID string) (firefly.Balance, error)
 
-	// GetName returns the name of the bank provider (e.g., "enable_banking")
-	GetName() string
+	// GetProviderType returns the bank provider type (e.g., "enable")
+	GetProviderType() string
 
-	// GetAccountName returns the account identifier
-	GetAccountName() string
-}
+	// ValidateCredentials validates the client's credentials
+	ValidateCredentials() error
 
-// FireflyClient defines the interface for Firefly III API interactions
-type FireflyClient interface {
-	// CreateTransaction creates a new transaction in Firefly III
-	CreateTransaction(accountID, currencyID string, t firefly.CustomTransaction) error
-
-	// GetCurrencyID retrieves the Firefly III currency ID for a given account
-	GetCurrencyID(accountID string) (string, error)
-
-	// GetAccounts retrieves all accounts from Firefly III
-	GetAccounts() (map[string]string, error)
+	// RefreshToken refreshes the OAuth token if needed
+	RefreshToken() error
 }
 
 // DatabaseClient defines the interface for database operations
@@ -59,15 +86,24 @@ type DatabaseClient interface {
 	// SetLastImportTime sets the timestamp of the last import operation
 	SetLastImportTime(source string, timestamp time.Time) error
 
-	// SearchSimilarTransactions finds transactions with similar metadata embeddings
+	// SearchSimilarTransactions finds transactions with similar metadata
 	SearchSimilarTransactions(metadata map[string]string, limit int) ([]string, error)
 
 	// Close closes the database connection
 	Close() error
 }
 
-// Balance represents an account balance
-type Balance struct {
-	Currency string
-	Amount   float64
+// MetricsClient defines the interface for metrics collection
+type MetricsClient interface {
+	// RecordImport records a transaction import event
+	RecordImport(source, status string)
+
+	// RecordError records an error event
+	RecordError(source, errorType string)
+
+	// RecordLatency records operation latency
+	RecordLatency(operation string, duration time.Duration)
+
+	// GetMetrics returns current metrics
+	GetMetrics() map[string]interface{}
 }

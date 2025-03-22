@@ -38,11 +38,26 @@ The application will:
 - Retrieve transaction data from specified cryptocurrency wallets and bank accounts.
 - Support multiple blockchain networks and banks through modular adapters.
 - Integrate with Firefly III's REST API to create and manage transactions.
-- Use an embedded SQLite database to track imported transactions and prevent duplicates.
+- Use Pocketbase v0.26.1 with custom database driver to track imported transactions and prevent duplicates.
+  - Support customizable transaction fetching for bank accounts (e.g., limit, date range).
+  - Track imported transactions in SQLite to prevent duplicates.
+  - Enable concurrent fetching and processing for multiple wallets and accounts.
+  - Use Pocketbase to handle Authentication and Authorization for the API.
+  - Use Pocketbase to handle the database and data management.
+  - Use Pocketbase to handle the API and data management.
+- Use the Enable Banking API to fetch transaction and balance data from bank accounts. 
 - Enable concurrent data fetching and processing for efficiency.
 - Run as a background service in detached mode, with signal handling for graceful shutdown.
+  - We will run on linux only, for now, and will not support Windows or Mac.
+  - We will use a client & daemon architecture.
+  - We will use use linux kernel APIs to manage the daemon.
+  - We will use proper privilage separation to ensure the daemon runs with the least amount of privileges. And the client runs in user-space.
+  - We will have systemd services to manage the daemon & the client.
+  - We will use linux IPC to communicate between the client & the daemon.
+- Provide a command-line interface (CLI) for user interaction, supporting both foreground and detached modes.
+- Be configurable via a TOML file, allowing users to specify wallet addresses, bank account details, and Firefly III API token. 
 - Be packaged as a custom Docker image with Docker Compose for self-hosting.
-- Provide a CLI interface with foreground and detached modes.
+- Be designed with a hexagonal architecture, employing Dependency Injection (DI) and Inversion of Control (IoC) principles to ensure modularity and testability.
 
 ### 1.3 Definitions and Acronyms
 
@@ -61,7 +76,7 @@ The application will:
 
 ### 2.1 System Context
 
-The application is a standalone CLI tool designed to operate as a background service within a Docker container. It interacts with external blockchain APIs (e.g., Etherscan, Solscan, SUI JSON-RPC), the Enable Banking API for bank data, and Firefly III's REST API. Configuration is read from a JSON file, and state is managed using an embedded SQLite database. Docker Compose orchestrates the application and its dependencies, enabling self-hosting on any Docker-compatible instance.
+The application is a standalone CLI tool designed to operate as a background service within a Docker container. It interacts with external blockchain APIs (e.g., Etherscan, Solscan, SUI JSON-RPC), the Enable Banking API for bank data, and Firefly III's REST API. Configuration is read from a TOML file, and state is managed using Pocketbase. Docker Compose orchestrates the application and its dependencies, enabling self-hosting on any Docker-compatible instance.
 
 ### 2.2 Functional Requirements
 
@@ -92,7 +107,7 @@ The system employs a **hexagonal architecture** (ports and adapters) to isolate 
 
 ### 3.2 System Components
 
-- **Configuration**: JSON file for settings, wallet addresses, bank account details, and mappings.
+- **Configuration**: TOML file for settings, wallet addresses, bank account details, and mappings.
 - **Database**: SQLite for tracking imported transactions, persisted via Docker volume.
 - **Blockchain Clients**: Adapters for fetching cryptocurrency transaction data.
 - **Bank Account Clients**: Adapters for fetching bank transaction and balance data via Enable Banking API.
@@ -122,7 +137,7 @@ The system employs a **hexagonal architecture** (ports and adapters) to isolate 
            v
 +--------------------+     +--------------------+
 |  Firefly III       |<--->|  Database          |
-|  Client            |     |  (SQLite)          |
+|  Client            |     |  (Pocketbase)      |
 +--------------------+     +--------------------+
 ```
 
@@ -247,7 +262,7 @@ type Database interface {
 
 ### 6.1 Data Flow
 
-1. Load configuration from JSON file.
+1. Load configuration from TOML file.
 2. Fetch transaction data from blockchain APIs or Enable Banking API.
 3. Query SQLite to filter out already imported transactions.
 4. Parse and map transactions to Firefly III's format.
@@ -277,8 +292,8 @@ type Database interface {
 
 ### 6.3 Persistence
 
-- **SQLite Database**: Stored in a Docker volume (e.g., `/app/data/importer.db`) to persist imported transaction records across container restarts.
-- **Configuration**: JSON file stored in the same volume or passed via environment variables.
+- **SQLite Database via Pocketbase**: Stored in a Docker volume (e.g., `/app/data/importer.db`) to persist imported transaction records across container restarts.
+- **Configuration**: TOML file stored in the same volume or passed via environment variables.
 
 ---
 
@@ -286,14 +301,10 @@ type Database interface {
 
 ### 7.1 Error Handling
 
-- Use `fmt.Errorf` for detailed error messages with context.
-- Implement retry logic (e.g., 3 attempts) for transient failures like network timeouts.
-- Validate configuration and inputs before execution.
-
-### 7.2 Logging
-
-- Use Go's `log` package for console output in a Docker-friendly format.
-- Optionally integrate structured logging (e.g., Zap) for production use.
+ Use Pocketbase to handle errors and exceptions, ensuring that all errors are logged and reported to the user. Implement retry logic for transient errors (e.g., network issues) with exponential backoff.
+- **Transient Errors**: Retry with exponential backoff (e.g., 1s, 2s, 4s).
+- **Permanent Errors**: Log and notify the user, e.g., invalid credentials or API limits reached.
+- **Graceful Shutdown**: Handle OS signals (e.g., SIGTERM, SIGINT) to stop background tasks and close resources.
 
 ---
 
@@ -369,7 +380,29 @@ This EDD provides a robust, modular, and scalable design for importing cryptocur
 - **Inversion of Control (IoC)**: Delegates object creation to a framework or container.
 - **Docker**: Platform for developing, shipping, and running applications in containers.
 - **Docker Compose**: Tool for defining and running multi-container Docker applications.
-
----
-
-This updated EDD integrates all specified changes, ensuring a complete and deployable solution for the Crypto Wallet and Bank Account Transaction Importer for Firefly III. Let me know if further refinements are needed!
+- **SOLID Principles**: Set of design principles for object-oriented programming.
+- **TOML**: Configuration file format (Tom's Obvious, Minimal Language).
+- **SQLite**: Lightweight, serverless SQL database engine.
+- **Pocketbase**: Lightweight backend for managing data and authentication.
+- **API Rate Limiting**: Restriction on the number of API requests in a given time frame.
+- **Concurrency**: Ability to run multiple tasks simultaneously.
+- **Goroutine**: Lightweight thread managed by the Go runtime.
+- **Signal Handling**: Mechanism to intercept and respond to OS signals (e.g., SIGTERM, SIGINT).
+- **Exponential Backoff**: Algorithm for retrying operations with increasing wait times.
+- **Docker Volume**: Persistent storage for Docker containers.
+- **Environment Variables**: Variables set in the operating system to configure applications.
+- **Open API Specification (OAS)**: Standard for defining RESTful APIs.
+- **Account Servicing Payment Service Provider (ASPSP)**: Financial institution providing account services.
+- **Account Information Service Provider (AISP)**: Third-party service provider accessing account information.
+- **Payment Initiation Service Provider (PISP)**: Third-party service provider initiating payments.
+- **Authorization Code Flow**: OAuth 2.0 flow for obtaining access tokens.
+- **Access Token**: Token used to authenticate API requests.
+- **Refresh Token**: Token used to obtain a new access token.
+- **Bearer Token**: Token used in HTTP headers for authentication.
+- **OAuth 2.0**: Authorization framework for third-party applications.
+- **API Key**: Unique identifier for authenticating API requests.
+- **API Secret**: Secret key used to sign API requests.
+- **API Endpoint**: URL for accessing a specific API resource.
+- **API Rate Limit**: Maximum number of API requests allowed in a given time frame.
+- **API Throttling**: Mechanism to control the rate of API requests.
+- **API Pagination**: Technique for splitting large API responses into smaller pages.
