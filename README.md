@@ -1,5 +1,10 @@
 # Firedragon
 
+> [!IMPORTANT]\
+> This is a weekend personal project, the application is unstable. Do not use in production.
+> If you found this useful, please consider contributing or sending me a message on what you liked :)
+> If you really need this tool for your application, you can fund my work via Github Sponsors or hire me as a freelance developer.  
+
 Crypto Wallet and Bank Account Transaction Importer for Firefly III
 
 ![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
