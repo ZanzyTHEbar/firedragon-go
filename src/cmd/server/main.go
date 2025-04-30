@@ -7,6 +7,7 @@ import (
 
 	pbRepo "github.com/ZanzyTHEbar/firedragon-go/adapters/repositories/pocketbase"
 	"github.com/ZanzyTHEbar/firedragon-go/internal"
+	pbInternal "github.com/ZanzyTHEbar/firedragon-go/internal/pocketbase"
 	hooks "github.com/ZanzyTHEbar/firedragon-go/pb_hooks"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/plugins/migratecmd"
@@ -40,8 +41,11 @@ func main() {
 	log.Println("[INFO] Registering transaction hooks...")
 	hooks.RegisterTransactionHooks(app, walletRepo, categoryRepo, transactionRepo)
 
-	// Register custom API routes (will implement later)
-	// We'll add custom routes using app.OnServe().BindFunc() in the future
+	// Register custom API routes
+	log.Println("[INFO] Registering custom API routes...")
+	if err := pbInternal.RegisterRoutes(app); err != nil {
+		logger.Fatal().Err(err).Msg("Failed to register custom routes")
+	}
 	log.Println("[INFO] Server initialization complete")
 
 	// Start the application

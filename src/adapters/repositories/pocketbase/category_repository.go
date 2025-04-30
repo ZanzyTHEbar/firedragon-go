@@ -10,26 +10,23 @@ import (
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
-	"github.com/pocketbase/pocketbase/daos"
 )
 
 // CategoryRepository is a PocketBase implementation of the CategoryRepository interface
 type CategoryRepository struct {
-	app *pocketbase.PocketBase
-	dao *daos.Dao
+	app *pocketbase.PocketBase // Ensure this is the concrete type
 }
 
 // NewCategoryRepository creates a new PocketBase category repository
 func NewCategoryRepository(app *pocketbase.PocketBase) *CategoryRepository {
 	return &CategoryRepository{
 		app: app,
-		dao: app.Dao(),
 	}
 }
 
 // FindByID finds a category by ID
 func (r *CategoryRepository) FindByID(ctx context.Context, id string) (*models.Category, error) {
-	record, err := r.dao.FindRecordById("categories", id)
+	record, err := r.app.FindRecordById("categories", id) // Use r.app directly
 	if err != nil {
 		return nil, fmt.Errorf("failed to find category: %w", err)
 	}
@@ -39,7 +36,7 @@ func (r *CategoryRepository) FindByID(ctx context.Context, id string) (*models.C
 
 // FindAll finds all categories with optional filters
 func (r *CategoryRepository) FindAll(ctx context.Context, filter repositories.CategoryFilter) ([]*models.Category, error) {
-	query := r.dao.RecordQuery("categories")
+	query := r.app.RecordQuery("categories") // Use r.app directly
 
 	// Apply filters
 	if filter.Type != "" {
@@ -68,11 +65,11 @@ func (r *CategoryRepository) FindAll(ctx context.Context, filter repositories.Ca
 
 	// Apply pagination
 	if filter.Limit > 0 {
-		query = query.Limit(filter.Limit)
+		query = query.Limit(int64(filter.Limit)) // Cast to int64
 	}
 
 	if filter.Offset > 0 {
-		query = query.Offset(filter.Offset)
+		query = query.Offset(int64(filter.Offset)) // Cast to int64
 	}
 
 	// Execute query
@@ -98,7 +95,7 @@ func (r *CategoryRepository) FindAll(ctx context.Context, filter repositories.Ca
 func (r *CategoryRepository) Create(ctx context.Context, category *models.Category) error {
 	record := r.mapCategoryToRecord(category)
 
-	if err := r.dao.Save(record); err != nil {
+	if err := r.app.Save(record); err != nil { // Use r.app directly
 		return fmt.Errorf("failed to create category: %w", err)
 	}
 
@@ -111,7 +108,7 @@ func (r *CategoryRepository) Create(ctx context.Context, category *models.Catego
 // Update updates an existing category
 func (r *CategoryRepository) Update(ctx context.Context, category *models.Category) error {
 	// Check if category exists
-	record, err := r.dao.FindRecordById("categories", category.ID)
+	record, err := r.app.FindRecordById("categories", category.ID) // Use r.app directly
 	if err != nil {
 		return fmt.Errorf("failed to find category: %w", err)
 	}
@@ -124,7 +121,7 @@ func (r *CategoryRepository) Update(ctx context.Context, category *models.Catego
 	// Update fields
 	record = r.updateRecordFromCategory(record, category)
 
-	if err := r.dao.Save(record); err != nil {
+	if err := r.app.Save(record); err != nil { // Use r.app directly
 		return fmt.Errorf("failed to update category: %w", err)
 	}
 
@@ -133,7 +130,7 @@ func (r *CategoryRepository) Update(ctx context.Context, category *models.Catego
 
 // Delete deletes a category by ID
 func (r *CategoryRepository) Delete(ctx context.Context, id string) error {
-	record, err := r.dao.FindRecordById("categories", id)
+	record, err := r.app.FindRecordById("categories", id) // Use r.app directly
 	if err != nil {
 		return fmt.Errorf("failed to find category: %w", err)
 	}
@@ -144,10 +141,10 @@ func (r *CategoryRepository) Delete(ctx context.Context, id string) error {
 	}
 
 	// Check for any transactions using this category
-	txCount, err := r.dao.RecordQuery("transactions").
-		AndWhere(dbx.HashExp{"category": id}).
-		Count("id")
-	if err != nil {
+	var txCount int64 // Use int64 for count
+	// Select count(*) and use Row() to scan the result
+	countQuery := r.app.RecordQuery("transactions").Select("count(*)").AndWhere(dbx.HashExp{"category": id})
+	if err := countQuery.Row(&txCount); err != nil { // Use Row() to get the count
 		return fmt.Errorf("failed to check for transactions using category: %w", err)
 	}
 
@@ -156,7 +153,7 @@ func (r *CategoryRepository) Delete(ctx context.Context, id string) error {
 	}
 
 	// If no transactions reference this category, delete it
-	if err := r.dao.Delete(record); err != nil {
+	if err := r.app.Delete(record); err != nil { // Use r.app directly
 		return fmt.Errorf("failed to delete category: %w", err)
 	}
 
@@ -165,7 +162,7 @@ func (r *CategoryRepository) Delete(ctx context.Context, id string) error {
 
 // FindByType finds categories by type
 func (r *CategoryRepository) FindByType(ctx context.Context, categoryType models.CategoryType) ([]*models.Category, error) {
-	query := r.dao.RecordQuery("categories").
+	query := r.app.RecordQuery("categories"). // Use r.app directly
 		AndWhere(dbx.HashExp{"type": string(categoryType)}).
 		OrderBy("name ASC")
 
@@ -190,7 +187,7 @@ func (r *CategoryRepository) FindByType(ctx context.Context, categoryType models
 
 // FindSystemCategories finds all system categories
 func (r *CategoryRepository) FindSystemCategories(ctx context.Context) ([]*models.Category, error) {
-	query := r.dao.RecordQuery("categories").
+	query := r.app.RecordQuery("categories"). // Use r.app directly
 		AndWhere(dbx.HashExp{"is_system": true}).
 		OrderBy("name ASC")
 
@@ -231,7 +228,7 @@ func (r *CategoryRepository) mapRecordToCategory(record *core.Record) (*models.C
 }
 
 func (r *CategoryRepository) mapCategoryToRecord(category *models.Category) *core.Record {
-	collection, _ := r.dao.FindCollectionByNameOrId("categories")
+	collection, _ := r.app.FindCollectionByNameOrId("categories") // Use r.app directly
 	record := core.NewRecord(collection)
 
 	// Set basic fields

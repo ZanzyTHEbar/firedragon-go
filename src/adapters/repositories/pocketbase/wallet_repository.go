@@ -10,26 +10,23 @@ import (
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
-	"github.com/pocketbase/pocketbase/daos"
 )
 
 // WalletRepository is a PocketBase implementation of the WalletRepository interface
 type WalletRepository struct {
 	app *pocketbase.PocketBase
-	dao *daos.Dao
 }
 
 // NewWalletRepository creates a new PocketBase wallet repository
 func NewWalletRepository(app *pocketbase.PocketBase) *WalletRepository {
 	return &WalletRepository{
 		app: app,
-		dao: app.Dao(),
 	}
 }
 
 // FindByID finds a wallet by ID
 func (r *WalletRepository) FindByID(ctx context.Context, id string) (*models.Wallet, error) {
-	record, err := r.dao.FindRecordById("wallets", id)
+	record, err := r.app.FindRecordById("wallets", id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find wallet: %w", err)
 	}
@@ -39,7 +36,7 @@ func (r *WalletRepository) FindByID(ctx context.Context, id string) (*models.Wal
 
 // FindAll finds all wallets with optional filters
 func (r *WalletRepository) FindAll(ctx context.Context, filter repositories.WalletFilter) ([]*models.Wallet, error) {
-	query := r.dao.RecordQuery("wallets")
+	query := r.app.RecordQuery("wallets")
 
 	// Apply filters
 	if filter.Type != "" {
@@ -68,11 +65,11 @@ func (r *WalletRepository) FindAll(ctx context.Context, filter repositories.Wall
 
 	// Apply pagination
 	if filter.Limit > 0 {
-		query = query.Limit(filter.Limit)
+		query = query.Limit(int64(filter.Limit))
 	}
 
 	if filter.Offset > 0 {
-		query = query.Offset(filter.Offset)
+		query = query.Offset(int64(filter.Offset))
 	}
 
 	// Execute query
@@ -98,7 +95,7 @@ func (r *WalletRepository) FindAll(ctx context.Context, filter repositories.Wall
 func (r *WalletRepository) Create(ctx context.Context, wallet *models.Wallet) error {
 	record := r.mapWalletToRecord(wallet)
 
-	if err := r.dao.Save(record); err != nil {
+	if err := r.app.Save(record); err != nil {
 		return fmt.Errorf("failed to create wallet: %w", err)
 	}
 
@@ -111,7 +108,7 @@ func (r *WalletRepository) Create(ctx context.Context, wallet *models.Wallet) er
 // Update updates an existing wallet
 func (r *WalletRepository) Update(ctx context.Context, wallet *models.Wallet) error {
 	// Check if wallet exists
-	record, err := r.dao.FindRecordById("wallets", wallet.ID)
+	record, err := r.app.FindRecordById("wallets", wallet.ID)
 	if err != nil {
 		return fmt.Errorf("failed to find wallet: %w", err)
 	}
@@ -119,7 +116,7 @@ func (r *WalletRepository) Update(ctx context.Context, wallet *models.Wallet) er
 	// Update fields
 	record = r.updateRecordFromWallet(record, wallet)
 
-	if err := r.dao.Save(record); err != nil {
+	if err := r.app.Save(record); err != nil {
 		return fmt.Errorf("failed to update wallet: %w", err)
 	}
 
@@ -128,37 +125,24 @@ func (r *WalletRepository) Update(ctx context.Context, wallet *models.Wallet) er
 
 // Delete deletes a wallet by ID
 func (r *WalletRepository) Delete(ctx context.Context, id string) error {
-	// Check for any transactions using this wallet
-	txCount, err := r.dao.RecordQuery("transactions").
-		AndWhere(dbx.HashExp{"wallet": id}).
-		Count("id")
-	if err != nil {
-		return fmt.Errorf("failed to check for transactions using wallet: %w", err)
-	}
-
-	if txCount > 0 {
-		return fmt.Errorf("wallet cannot be deleted because it has %d transactions", txCount)
-	}
-
-	// Check for any transactions using this wallet as destination
-	destTxCount, err := r.dao.RecordQuery("transactions").
-		AndWhere(dbx.HashExp{"destination_wallet": id}).
-		Count("id")
-	if err != nil {
-		return fmt.Errorf("failed to check for transactions using wallet as destination: %w", err)
-	}
-
-	if destTxCount > 0 {
-		return fmt.Errorf("wallet cannot be deleted because it is used as destination in %d transactions", destTxCount)
-	}
-
-	// If no transactions reference this wallet, delete it
-	record, err := r.dao.FindRecordById("wallets", id)
+	record, err := r.app.FindRecordById("wallets", id) // Use r.app directly
 	if err != nil {
 		return fmt.Errorf("failed to find wallet: %w", err)
 	}
 
-	if err := r.dao.Delete(record); err != nil {
+	// Check for transactions associated with this wallet
+	var txCount int64 // Use int64 for count
+	// Select count(*) and use Row() to scan the result
+	countQuery := r.app.RecordQuery("transactions").Select("count(*)").AndWhere(dbx.Or(dbx.HashExp{"wallet": id}, dbx.HashExp{"destination_wallet": id}))
+	if err := countQuery.Row(&txCount); err != nil { // Use Row() to get the count
+		return fmt.Errorf("failed to check for transactions using wallet: %w", err)
+	}
+
+	if txCount > 0 {
+		return fmt.Errorf("wallet cannot be deleted because it has %d associated transactions", txCount)
+	}
+
+	if err := r.app.Delete(record); err != nil { // Use r.app directly
 		return fmt.Errorf("failed to delete wallet: %w", err)
 	}
 
@@ -167,7 +151,7 @@ func (r *WalletRepository) Delete(ctx context.Context, id string) error {
 
 // UpdateBalance updates a wallet balance
 func (r *WalletRepository) UpdateBalance(ctx context.Context, id string, amount float64) error {
-	record, err := r.dao.FindRecordById("wallets", id)
+	record, err := r.app.FindRecordById("wallets", id)
 	if err != nil {
 		return fmt.Errorf("failed to find wallet: %w", err)
 	}
@@ -175,11 +159,25 @@ func (r *WalletRepository) UpdateBalance(ctx context.Context, id string, amount 
 	currentBalance := record.GetFloat("balance")
 	record.Set("balance", currentBalance+amount)
 
-	if err := r.dao.Save(record); err != nil {
+	if err := r.app.Save(record); err != nil {
 		return fmt.Errorf("failed to update wallet balance: %w", err)
 	}
 
 	return nil
+}
+
+// FindByName finds a wallet by name (case-insensitive)
+func (r *WalletRepository) FindByName(ctx context.Context, name string) (*models.Wallet, error) {
+	record := &core.Record{}
+	err := r.app.RecordQuery("wallets").
+		AndWhere(dbx.NewExp("LOWER(name) = LOWER({:name})", dbx.Params{"name": name})).
+		Limit(1).
+		One(record)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find wallet: %w", err)
+	}
+
+	return r.mapRecordToWallet(record)
 }
 
 // Helper methods for mapping between domain models and PocketBase records
@@ -200,7 +198,7 @@ func (r *WalletRepository) mapRecordToWallet(record *core.Record) (*models.Walle
 }
 
 func (r *WalletRepository) mapWalletToRecord(wallet *models.Wallet) *core.Record {
-	collection, _ := r.dao.FindCollectionByNameOrId("wallets")
+	collection, _ := r.app.FindCollectionByNameOrId("wallets")
 	record := core.NewRecord(collection)
 
 	// Set basic fields

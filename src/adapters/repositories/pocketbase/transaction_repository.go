@@ -10,26 +10,24 @@ import (
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
-	"github.com/pocketbase/pocketbase/daos"
+	// Removed daos import
 )
 
 // TransactionRepository is a PocketBase implementation of the TransactionRepository interface
 type TransactionRepository struct {
-	app *pocketbase.PocketBase
-	dao *daos.Dao
+	app *pocketbase.PocketBase // Use app instead of dao
 }
 
 // NewTransactionRepository creates a new PocketBase transaction repository
 func NewTransactionRepository(app *pocketbase.PocketBase) *TransactionRepository {
 	return &TransactionRepository{
-		app: app,
-		dao: app.Dao(),
+		app: app, // Initialize app
 	}
 }
 
 // FindByID finds a transaction by ID
 func (r *TransactionRepository) FindByID(ctx context.Context, id string) (*models.Transaction, error) {
-	record, err := r.dao.FindRecordById("transactions", id)
+	record, err := r.app.FindRecordById("transactions", id) // Use r.app directly
 	if err != nil {
 		return nil, fmt.Errorf("failed to find transaction: %w", err)
 	}
@@ -39,7 +37,7 @@ func (r *TransactionRepository) FindByID(ctx context.Context, id string) (*model
 
 // FindAll finds all transactions with optional filters
 func (r *TransactionRepository) FindAll(ctx context.Context, filter repositories.TransactionFilter) ([]*models.Transaction, error) {
-	query := r.dao.RecordQuery("transactions")
+	query := r.app.RecordQuery("transactions") // Use r.app directly
 
 	// Apply filters
 	if filter.WalletID != "" {
@@ -92,11 +90,11 @@ func (r *TransactionRepository) FindAll(ctx context.Context, filter repositories
 
 	// Apply pagination
 	if filter.Limit > 0 {
-		query = query.Limit(filter.Limit)
+		query = query.Limit(int64(filter.Limit)) // Cast to int64
 	}
 
 	if filter.Offset > 0 {
-		query = query.Offset(filter.Offset)
+		query = query.Offset(int64(filter.Offset)) // Cast to int64
 	}
 
 	// Execute query
@@ -122,7 +120,7 @@ func (r *TransactionRepository) FindAll(ctx context.Context, filter repositories
 func (r *TransactionRepository) Create(ctx context.Context, transaction *models.Transaction) error {
 	record := r.mapTransactionToRecord(transaction)
 
-	if err := r.dao.Save(record); err != nil {
+	if err := r.app.Save(record); err != nil { // Use r.app directly
 		return fmt.Errorf("failed to create transaction: %w", err)
 	}
 
@@ -132,7 +130,7 @@ func (r *TransactionRepository) Create(ctx context.Context, transaction *models.
 // Update updates an existing transaction
 func (r *TransactionRepository) Update(ctx context.Context, transaction *models.Transaction) error {
 	// Check if transaction exists
-	record, err := r.dao.FindRecordById("transactions", transaction.ID)
+	record, err := r.app.FindRecordById("transactions", transaction.ID) // Use r.app directly
 	if err != nil {
 		return fmt.Errorf("failed to find transaction: %w", err)
 	}
@@ -140,7 +138,7 @@ func (r *TransactionRepository) Update(ctx context.Context, transaction *models.
 	// Update fields
 	record = r.updateRecordFromTransaction(record, transaction)
 
-	if err := r.dao.Save(record); err != nil {
+	if err := r.app.Save(record); err != nil { // Use r.app directly
 		return fmt.Errorf("failed to update transaction: %w", err)
 	}
 
@@ -149,12 +147,12 @@ func (r *TransactionRepository) Update(ctx context.Context, transaction *models.
 
 // Delete deletes a transaction by ID
 func (r *TransactionRepository) Delete(ctx context.Context, id string) error {
-	record, err := r.dao.FindRecordById("transactions", id)
+	record, err := r.app.FindRecordById("transactions", id) // Use r.app directly
 	if err != nil {
 		return fmt.Errorf("failed to find transaction: %w", err)
 	}
 
-	if err := r.dao.Delete(record); err != nil {
+	if err := r.app.Delete(record); err != nil { // Use r.app directly
 		return fmt.Errorf("failed to delete transaction: %w", err)
 	}
 
@@ -168,7 +166,7 @@ func (r *TransactionRepository) FindDuplicates(ctx context.Context, transaction 
 	endTime := transaction.Date.Add(timeWindow / 2)
 
 	// Build query for potential duplicates
-	query := r.dao.RecordQuery("transactions").
+	query := r.app.RecordQuery("transactions"). // Use r.app directly
 		AndWhere(dbx.HashExp{"wallet": transaction.WalletID}).
 		AndWhere(dbx.NewExp("ABS(amount - {:amount}) < 0.01", dbx.Params{"amount": transaction.Amount})).
 		AndWhere(dbx.NewExp("date >= {:start_date}", dbx.Params{"start_date": startTime})).
@@ -228,7 +226,7 @@ func (r *TransactionRepository) mapRecordToTransaction(record *core.Record) (*mo
 	}
 
 	// Handle tags if present
-	if record.Has("tags") {
+	if tagValue := record.Get("tags"); tagValue != nil {
 		tags := record.Get("tags")
 		if tagsArray, ok := tags.([]interface{}); ok {
 			tx.Tags = make([]string, 0, len(tagsArray))
@@ -244,7 +242,7 @@ func (r *TransactionRepository) mapRecordToTransaction(record *core.Record) (*mo
 }
 
 func (r *TransactionRepository) mapTransactionToRecord(transaction *models.Transaction) *core.Record {
-	collection, _ := r.dao.FindCollectionByNameOrId("transactions")
+	collection, _ := r.app.FindCollectionByNameOrId("transactions") // Use r.app directly
 	record := core.NewRecord(collection)
 
 	// Set basic fields

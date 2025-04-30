@@ -1,7 +1,9 @@
 package pocketbase
 
 import (
-	"github.com/labstack/echo/v5"
+	"encoding/json"
+	"net/http"
+
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 )
@@ -14,18 +16,28 @@ import (
 
 // RegisterRoutes registers all custom API routes
 func RegisterRoutes(app *pocketbase.PocketBase) error {
-	// Register custom API routes using OnBeforeServe hook
-	app.OnBeforeServe().Add(func(e *core.ServeEvent) error {
+	// Register custom API routes using OnServe hook with BindFunc
+	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
 		// Example: Add a custom /api/hello endpoint
-		e.Router.GET("/api/hello", func(c echo.Context) error {
-			return c.JSON(200, map[string]string{
-				"message": "Hello from FireDragon API",
-			})
+		e.Router.GET("/api/hello", func(c *core.RequestEvent) error {
+			type response struct {
+				Message string `json:"message"`
+			}
+
+			data, err := json.Marshal(&response{Message: "Hello from FireDragon API"})
+			if err != nil {
+				return err // Return error for proper handling
+			}
+
+			c.Response.Header().Set("Content-Type", "application/json")
+			c.Response.WriteHeader(http.StatusOK)
+			_, err = c.Response.Write(data)
+			return err // Return potential write error
 		})
 
 		// TODO: Add more custom API endpoints here
 
-		return nil
+		return e.Next() // Call e.Next() to proceed with the hook chain
 	})
 
 	return nil
