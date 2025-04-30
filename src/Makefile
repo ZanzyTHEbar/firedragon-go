@@ -15,7 +15,7 @@ BINARY_NAME := $(BINARY_BASE_NAME)_client_$(GOOS)_$(GOARCH)
 BINARY_PATH_PREFIX := ./bin
 BINARY_PATH := $(BINARY_PATH_PREFIX)/$(GOOS)_$(GOARCH)
 
-MODULE_PATH := ./cmd/firedragon.go
+MODULE_PATH := ./cmd/$(BINARY_BASE_NAME).go
 
 # Default target
 .DEFAULT_GOAL := build
@@ -33,7 +33,6 @@ dev: start-nats
 	@mkdir -p tmp
 	@air -c .air.toml > $(BINARY_NAME).log 2>&1 & echo $$! > $(BINARY_NAME).pid
 	@echo "Development environment started. Logs are in $(BINARY_NAME).log."
-	@echo "NATs cli is running. Logs are in nats.log."
 	@echo "Use 'make stop-dev' to stop the development environment."
 
 stop-dev:
@@ -45,43 +44,10 @@ stop-dev:
 			rm $(BINARY_NAME).pid; \
 		fi \
 	fi
-	@make stop-nats
 	@echo "Development environment stopped."
 
 monitor-logs:
 	@if [ -f $(BINARY_NAME).log ]; then $(TERMINAL) -e "tail -f $(BINARY_NAME).log" & fi
-	@if [ -f nats.log ]; then $(TERMINAL) -e "tail -f nats.log" & fi
-
-# nats context save nats_development --user nats_development --password <password> --server <server-url>
-start-nats:
-	@echo "Checking for local NATs server..."
-	@if ! command -v nats >/dev/null 2>&1; then \
-		echo "Local NATs server not found. Please install NATs.io cli."; \
-		exit 1; \
-	fi
-	@if [ -f nats.pid ] && ps -p $$(cat nats.pid) > /dev/null; then \
-		echo "Local NATs server is already running with PID $$(cat nats.pid)."; \
-	else \
-		[ -f nats.pid ] && rm nats.pid; \
-		echo "Starting Local NATs server..."; \
-		nats server run --jetstream --clean > nats.log 2>&1 & echo $$! > nats.pid; \
-	fi
-	@echo "Setting up NATs context..."
-	@nats context save --select localdev --server localhost:9222 --user dev --password devpass
-	@echo "Local NATs server is running. Logs are in nats.log."
-
-stop-nats:
-	@if [ -f nats.pid ]; then \
-		if ps -p $$(cat nats.pid) > /dev/null; then \
-			kill $$(cat nats.pid) && rm nats.pid; \
-			echo "NATs cli stopped."; \
-		else \
-			echo "NATs cli is not running. Removing stale PID file."; \
-			rm nats.pid; \
-		fi \
-	else \
-		echo "NATs cli is not running or PID file not found."; \
-	fi
 
 build:
 	@echo "Building $(CLIENT_BINARY_NAME) and $(SERVER_BINARY_NAME) ..."
@@ -102,21 +68,6 @@ clean:
 	@rm -rf $(BINARY_PATH_PREFIX)
 	@echo "Removing temporary test directories $(TEMP_PATHS) ..."
 	@rm -rf $(TEMP_PATHS)
-
-gentest:
-	@echo "Generating test directory..."
-	@mkdir -p /tmp/$(BINARY_BASE_NAME)_test_$(shell date +'%Y%m%d%H%M%S')_$(shell shuf -i 1-1000 -n 1)
-
-genproto:
-	@echo "Generating proto files using buf cli ..."
-	@buf lint $(PROTO_DIR) || (echo "Linting failed. Fix the issues above and try again." && exit 1)
-	@buf generate $(PROTO_DIR)
-	@echo "Done generating proto files"
-
-delproto:
-	@echo "Deleting generated proto files ..."
-	@rm -rf $(PROTO_DIR)/gen
-	@echo "Done deleting generated proto files"
 
 # Test the application
 test:

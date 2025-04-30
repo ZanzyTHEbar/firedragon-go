@@ -46,4 +46,4 @@ memory-bank/
 # Ignore all files in the data directory
 pb_data/
 
-
+.cursor/

@@ -1,9 +1,9 @@
 package interfaces
 
 import (
-	"time"
+"time"
 
-	"github.com/ZanzyTHEbar/firedragon-go/firefly"
+"github.com/ZanzyTHEbar/firedragon-go/domain/models"
 )
 
 // ErrorType represents different types of client errors
@@ -41,14 +41,14 @@ func NewClientError(errorType ErrorType, message string, err error) error {
 
 // BlockchainClient defines the interface for blockchain clients
 type BlockchainClient interface {
-	// FetchTransactions retrieves transactions for a wallet address
-	FetchTransactions(address string) ([]firefly.Transaction, error)
+// FetchTransactions retrieves transactions for a wallet address
+FetchTransactions(address string) ([]models.Transaction, error)
 
-	// GetBalance gets the current balance for a wallet address
-	GetBalance(address string) (firefly.Balance, error)
+// GetBalance gets the current balance for a wallet address
+GetBalance(address string) (models.BalanceInfo, error)
 
-	// GetChainType returns the blockchain type (e.g., "ethereum", "solana")
-	GetChainType() string
+// GetChainType returns the blockchain type (e.g., "ethereum", "solana")
+GetChainType() string
 
 	// IsValidAddress validates a wallet address format
 	IsValidAddress(address string) bool
@@ -56,14 +56,14 @@ type BlockchainClient interface {
 
 // BankClient defines the interface for banking clients
 type BankClient interface {
-	// FetchTransactions retrieves transactions for a bank account
-	FetchTransactions(accountID string) ([]firefly.Transaction, error)
+// FetchTransactions retrieves transactions for a bank account
+FetchTransactions(accountID string) ([]models.Transaction, error)
 
-	// GetBalance gets the current balance for a bank account
-	GetBalance(accountID string) (firefly.Balance, error)
+// GetBalance gets the current balance for a bank account
+GetBalance(accountID string) (models.BalanceInfo, error)
 
-	// GetProviderType returns the bank provider type (e.g., "enable")
-	GetProviderType() string
+// GetProviderType returns the bank provider type (e.g., "enable")
+GetProviderType() string
 
 	// ValidateCredentials validates the client's credentials
 	ValidateCredentials() error

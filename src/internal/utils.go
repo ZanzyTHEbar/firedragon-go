@@ -1,12 +1,13 @@
 package internal
 
 import (
-	"encoding/base64"
-	"encoding/json"
-	"fmt"
-	"os"
+"encoding/base64"
+"encoding/json"
+"fmt"
+"os"
 
-	"github.com/google/uuid"
+"github.com/google/uuid"
+"github.com/rs/zerolog/log" // Ensure zerolog/log is imported
 )
 
 // DecodePayload decodes a base64-encoded JSON payload
@@ -36,10 +37,12 @@ func GenerateUUID() string {
 // GenerateClientID generates a client identifier based on hostname
 func GenerateClientID() string {
 	clientID, err := os.Hostname()
-	if err != nil {
-		GetLogger().Warn(ComponentGeneral, "Error getting hostname: %v", err)
-		os.Exit(1)
-	}
+if err != nil {
+// Use global log variable from zerolog/log package
+log.Warn().Str("component", string(ComponentGeneral)).Err(err).Msg("Error getting hostname")
+// Consider if os.Exit(1) is appropriate here, maybe return an error or default ID instead
+os.Exit(1)
+}
 	return clientID
 }
 
